@@ -1,4 +1,4 @@
-# Production stack for a2bsoftware-frontend. Lives on the VPS at
+# Production stack for a2bsoftware-vendor. Lives on the VPS at
 # ${DEPLOY_PATH} (see deploy/scripts/server-setup.sh) and is driven entirely
 # by deploy/scripts/deploy.sh over SSH - nobody should need to hand-type
 # `docker compose` commands here except during manual recovery (see
@@ -13,8 +13,8 @@
 # nginx can reach. Keycloak lives on its own separate domain
 # (auth.a2bsoftware.com), not part of this shared vhost at all.
 #
-# Zero-downtime model: app_blue (127.0.0.1:3000) and app_green
-# (127.0.0.1:3001) are the SAME image on two slots. A deploy starts the new
+# Zero-downtime model: app_blue (127.0.0.1:4000) and app_green
+# (127.0.0.1:4001) are the SAME image on two slots. A deploy starts the new
 # version on whichever slot is idle, health-checks it directly over its
 # published port (bypassing nginx), and only then rewrites
 # state/upstream.conf and hot-reloads the host's nginx (`nginx -s reload`,
@@ -31,18 +31,18 @@
 services:
   app_blue:
     image: ${IMAGE_REF:?IMAGE_REF must be set in .env}
-    container_name: a2bsoftware-frontend-blue
+    container_name: a2bsoftware-vendor-blue
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      PORT: "3000"
+      PORT: "4000"
       HOSTNAME: "0.0.0.0"
     ports:
       # Loopback-only: reachable from this host's nginx, never from outside
       # (no firewall rule needed for these - they're not on a public
       # interface at all).
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4000:4000"
     networks:
       - app_net
     extra_hosts:
@@ -68,15 +68,15 @@ services:
 
   app_green:
     image: ${IMAGE_REF:?IMAGE_REF must be set in .env}
-    container_name: a2bsoftware-frontend-green
+    container_name: a2bsoftware-vendor-green
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      PORT: "3000"
+      PORT: "4000"
       HOSTNAME: "0.0.0.0"
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:4001:4000"
     networks:
       - app_net
     extra_hosts:

@@ -8,9 +8,7 @@ interface User {
   user_name?: string;
   name?: string;
   email: string;
-  role_id: string;
-  role?: string;
-  permissions?: number[];
+  vendor_name?: string;
 }
 
 export default function DashboardHeader({ user }: { user: User | null }) {
@@ -20,10 +18,10 @@ export default function DashboardHeader({ user }: { user: User | null }) {
       <div className="ml-auto flex items-center gap-3">
         <div className="flex flex-col text-right">
           <span className="text-sm font-semibold text-foreground">
-            {user?.user_name || user?.name || user?.email || "Admin User"}
+            {user?.user_name || user?.name || user?.email || "Vendor User"}
           </span>
           <span className="text-xs text-muted-foreground">
-            {user?.role === "Admin" ? "Administrator" : user?.role || "Manager"}
+            {user?.vendor_name || "Vendor"}
           </span>
         </div>
         <ModeToggle />

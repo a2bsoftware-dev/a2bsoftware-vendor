@@ -1,6 +1,6 @@
 # Deployment & CI/CD
 
-How a2bsoftware-frontend gets from a `git push` to running in production, how
+How a2bsoftware-vendor gets from a `git push` to running in production, how
 its secrets are protected, and how to recover when something goes wrong.
 
 > **Urgent, unrelated to this pipeline:** `ZAMP_KEY`'s current value is
@@ -30,33 +30,43 @@ its secrets are protected, and how to recover when something goes wrong.
 
 ## Architecture
 
-One VPS runs three services behind one HOST-native nginx (not a container -
+One VPS runs four services behind one HOST-native nginx (not a container -
 owned and version-controlled by the **sibling `a2bsoftware-backend` repo**,
-not this one - see `a2bsoftware-backend/deploy/nginx/dashboard.a2bsoftware.com.conf`),
-all on `dashboard.a2bsoftware.com`:
+not this one), across three domains. `vendor.a2bsoftware.com` is this repo's
+own vhost (`a2bsoftware-backend/deploy/nginx/vendor.a2bsoftware.com.conf`) -
+a separate subdomain from the original frontend's `dashboard.a2bsoftware.com`,
+but the SAME path-routing pattern: `/api/*` proxies to the one shared Spring
+Boot backend, same as the original frontend's vhost does, so both frontends
+call the backend same-origin (from their own respective domains) with no
+CORS relaxation needed for their own normal traffic:
 
 ```
-                         dashboard.a2bsoftware.com (nginx, host-native, TLS)
-                                        │
-        ┌───────────────┬──────────────┼──────────────────┐
-        │               │              │                  │
-     /api/*      /actuator/*          /*         auth.a2bsoftware.com
-        │               │              │                  │
-  Spring Boot API   Spring Boot    Next.js frontend      Keycloak
-  127.0.0.1:8081    127.0.0.1:8081  127.0.0.1:3000/:3001  (own domain,
-  (a2bsoftware-backend repo)        (blue/green - THIS    own container)
-                                     REPO, see below)
+   dashboard.a2bsoftware.com          vendor.a2bsoftware.com       auth.a2bsoftware.com
+   (nginx, host-native, TLS)          (nginx, host-native, TLS)    (Keycloak, own container)
+            │                                   │
+   ┌────────┼────────┐                 ┌────────┼────────┐
+   │        │        │                 │        │        │
+ /api/*  /actuator/* /*              /api/*     /*
+   │        │        │                 │        │
+   Spring Boot API (127.0.0.1:8081,   Spring Boot API (same)   Next.js VENDOR
+   a2bsoftware-backend repo)                                  127.0.0.1:4000/:4001
+        │                                                     (blue/green - THIS REPO)
+        Next.js frontend (127.0.0.1:3000/:3001,
+        a2bsoftware-frontend repo)
 ```
 
 **This repo owns exactly one file on the server**: `state/upstream.conf`,
-included by the backend repo's shared vhost config. This repo's CI/CD never
-touches the vhost file itself, TLS certs, or any other service - just its
-own two container slots and that one upstream include. See the "shared
-server" note in [First-time VPS setup](#first-time-vps-setup) for how the
-two repos' setup scripts coordinate on a server that runs both.
+included by `vendor.a2bsoftware.com.conf` (owned by the backend repo, same as
+the original frontend's own vhost). This repo's CI/CD never touches any vhost
+file, TLS certs, or any other service - just its own two container slots and
+that one upstream include. See the "shared server" note in
+[First-time VPS setup](#first-time-vps-setup) for how the two repos' setup
+scripts coordinate on a server that runs both, and note that
+`vendor.a2bsoftware.com` needs its own DNS record and TLS cert - it doesn't
+piggyback on the original frontend's domain at all.
 
-**Zero-downtime via blue/green:** `app_blue` (container port 3000, published
-to `127.0.0.1:3000`) and `app_green` (published to `127.0.0.1:3001`) run the
+**Zero-downtime via blue/green:** `app_blue` (container port 4000, published
+to `127.0.0.1:4000`) and `app_green` (published to `127.0.0.1:4001`) run the
 same image on two slots. Every deploy starts the new image on whichever
 slot is idle, health-checks it directly on its own port, and only then
 rewrites `state/upstream.conf`'s one `server` line and runs
@@ -108,9 +118,9 @@ with read access to the repo; Secrets are masked and access-controlled.
 
 | Variable | Value | Notes |
 |---|---|---|
-| `DEPLOY_PATH` | `/opt/a2bsoftware-frontend` | Matches `server-setup.sh`'s default - deliberately distinct from the backend repo's own `DEPLOY_PATH` (different app, same server) |
-| `DOMAIN` | `dashboard.a2bsoftware.com` | Used for the post-deploy public health check |
-| `NEXT_PUBLIC_API_BASE_URL` | `https://dashboard.a2bsoftware.com` | **Same origin as the frontend itself.** The browser calls `${NEXT_PUBLIC_API_BASE_URL}/api/...` directly - nginx already proxies `/api/*` to Spring Boot on this same domain. Same-origin means no CORS config needed anywhere |
+| `DEPLOY_PATH` | `/opt/a2bsoftware-vendor` | Matches `server-setup.sh`'s default - deliberately distinct from the backend repo's own `DEPLOY_PATH` (different app, same server) |
+| `DOMAIN` | `vendor.a2bsoftware.com` | Used for the post-deploy public health check |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://vendor.a2bsoftware.com` | **Same origin as this app itself**, not the backend's own domain. The browser calls `${NEXT_PUBLIC_API_BASE_URL}/api/...` directly - `vendor.a2bsoftware.com.conf` proxies `/api/*` to the same Spring Boot backend `dashboard.a2bsoftware.com.conf` does, just from this domain instead. Same-origin means no CORS relaxation needed for this app's own traffic (the backend's `CORS_ALLOWED_ORIGINS` still lists `https://vendor.a2bsoftware.com` too, as a second line of defense - see `a2bsoftware-backend`'s own deployment docs) |
 | `NEXT_PUBLIC_BACKEND_URL` | `http://host.docker.internal:8081` | Used **server-side only**, by `next.config.ts`'s `rewrites()` for the legacy non-migrated routes - this is the frontend container calling the backend directly. `host.docker.internal` reaches the host's `127.0.0.1:8081` from inside the container (`extra_hosts` is set up for this in `docker-compose.prod.yml`) |
 | `LOG_LEVEL` | `info` | Optional, defaults to `info` if unset |
 
@@ -169,7 +179,7 @@ Concretely, this means:
    - Only if that passes: rewrites `state/upstream.conf` to point at the new
      slot and runs `sudo nginx -s reload` (drains connections, doesn't drop
      them).
-   - Verifies the real public URL (`https://dashboard.a2bsoftware.com/api/health`)
+   - Verifies the real public URL (`https://vendor.a2bsoftware.com/`)
      through nginx/TLS end-to-end.
    - Only then stops the old slot and records the new image ref in
      `state/deploy_history`.
@@ -188,7 +198,7 @@ Two distinct mechanisms:
   SSH in and run:
   ```
   ssh deploy@<host>
-  cd /opt/a2bsoftware-frontend && ./scripts/rollback.sh
+  cd /opt/a2bsoftware-vendor && ./scripts/rollback.sh
   ```
   (no argument = roll back to the last different image in
   `state/deploy_history`; pass an image ref explicitly to target a specific
@@ -199,31 +209,32 @@ Two distinct mechanisms:
 ## First-time VPS setup
 
 **Shared-server note**: if this server already runs `a2bsoftware-backend`
-on the same `dashboard.a2bsoftware.com` vhost, Docker/nginx/certbot/ufw/the
-`deploy` user and the TLS certificate all already exist - skip straight to
-step 4 below (this repo's own `DEPLOY_PATH` + upstream include), reusing
-that repo's SSH key/host/user for the Secrets in step 3.
+(and/or `a2bsoftware-frontend`), Docker/nginx/certbot/ufw/the `deploy` user
+all already exist - `server-setup.sh` no-ops past those parts. You still need
+a **new** DNS record and a **new** TLS cert for `vendor.a2bsoftware.com`
+specifically, since it's its own subdomain, not one those already cover.
+Reuse the existing SSH key/host/user for the Secrets in step 3 rather than
+provisioning a new deploy key.
 
-1. Provision an Ubuntu/Debian VPS (or use the existing one). Point
-   `dashboard.a2bsoftware.com`'s DNS A/AAAA record at its IP (skip if
-   already pointed there).
+1. Provision an Ubuntu/Debian VPS (or use the existing shared one). Point
+   `vendor.a2bsoftware.com`'s DNS A/AAAA record at its IP.
 2. Copy `deploy/scripts/server-setup.sh` to the server and run, as root:
    ```
-   DOMAIN=dashboard.a2bsoftware.com ./server-setup.sh
+   DOMAIN=vendor.a2bsoftware.com ./server-setup.sh
    ```
    Safe to re-run / already-partially-done - see the comment at the top of
    that script. Prints the exact Secrets/Variables values for step 3.
 3. Add those Secrets/Variables to the repo (Settings → Secrets and
    variables → Actions).
-4. Seed this repo's one piece of the shared nginx vhost - **must exist
-   before `a2bsoftware-backend`'s nginx config (which `include`s it) is
-   applied**, or nginx will refuse to start:
+4. Seed this repo's one piece of its own nginx vhost - **must exist before
+   `a2bsoftware-backend`'s `vendor.a2bsoftware.com.conf` (which `include`s
+   it) is applied**, or nginx will refuse to start:
    ```
    ssh deploy@<host>
-   mkdir -p /opt/a2bsoftware-frontend/state
-   cat > /opt/a2bsoftware-frontend/state/upstream.conf <<'EOF'
-   upstream a2b_frontend {
-     server 127.0.0.1:3000;
+   mkdir -p /opt/a2bsoftware-vendor/state
+   cat > /opt/a2bsoftware-vendor/state/upstream.conf <<'EOF'
+   upstream a2b_vendor {
+     server 127.0.0.1:4000;
    }
    EOF
    ```
@@ -271,7 +282,7 @@ that repo's SSH key/host/user for the Secrets in step 3.
 | `generated nginx config failed validation` | A typo made it into the upstream rewrite (shouldn't happen since `deploy.sh` writes it verbatim, but the check exists as a safety net) | The script already restored the previous config automatically - `sudo nginx -t` on the server to see the exact syntax error |
 | `public health check via nginx/TLS did not pass after cutover` | Cutover happened but the public path is broken (cert expired, nginx misconfigured some other way, or `a2bsoftware-backend`'s vhost doesn't `include` `state/upstream.conf` yet) | Script already reverted `state/upstream.conf` to the old slot automatically. `sudo nginx -t`, check `sudo journalctl -u nginx` |
 | `only <N>MiB free` | Disk full on the Docker data root | `docker image prune -af --filter until=24h` on the server, or grow the disk |
-| Port already in use | Shouldn't happen - `app_blue`/`app_green` bind fixed, distinct loopback ports (3000/3001) never shared with anything else | If it does, `docker ps` on the server to find what's squatting on 3000/3001 |
+| Port already in use | Shouldn't happen - `app_blue`/`app_green` bind fixed, distinct loopback ports (4000/4001) never shared with anything else | If it does, `docker ps` on the server to find what's squatting on 4000/4001 |
 | A deploy is stuck / hung | The `frontend-deploy` concurrency group means a new push queues behind it rather than cancelling it (intentional - see the comment in `deploy.yml`) | Check the Actions tab for the in-progress run; cancel it manually there only if you're sure the server-side `deploy.sh` process itself is also dead (SSH in and check `ps aux \| grep deploy.sh`) |
 | Need to roll back after a bad manual rollback | `rollback.sh`/`deploy.sh` are idempotent and safe to re-run | `rollback.sh <a-known-good-image-ref>` explicitly, or check `state/deploy_history` for the full list of previously-deployed images |
 
@@ -282,25 +293,25 @@ from your own machine (needs Docker + `rsync` + the deploy SSH key locally):
 
 ```bash
 # 1. Build the image locally
-docker build -t a2bsoftware-frontend:manual \
-  --build-arg NEXT_PUBLIC_API_BASE_URL=https://dashboard.a2bsoftware.com \
+docker build -t a2bsoftware-vendor:manual \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=https://vendor.a2bsoftware.com \
   --build-arg NEXT_PUBLIC_BACKEND_URL=http://host.docker.internal:8081 .
 
 # 2. Compress and ship it alongside deploy/
-docker save a2bsoftware-frontend:manual | gzip > app.tar.gz
+docker save a2bsoftware-vendor:manual | gzip > app.tar.gz
 rsync -az --exclude ".env" --exclude "state/" \
-  deploy/ app.tar.gz deploy@<host>:/opt/a2bsoftware-frontend/
+  deploy/ app.tar.gz deploy@<host>:/opt/a2bsoftware-vendor/
 
 # 3. Write .env on the server (fill in real values - never commit this)
-ssh deploy@<host> 'bash /opt/a2bsoftware-frontend/scripts/write-env.sh' <<'EOF'
+ssh deploy@<host> 'bash /opt/a2bsoftware-vendor/scripts/write-env.sh' <<'EOF'
 ZAMP_KEY=...
 EXIT_HMAC_KEY=...
-NEXT_PUBLIC_API_BASE_URL=https://dashboard.a2bsoftware.com
+NEXT_PUBLIC_API_BASE_URL=https://vendor.a2bsoftware.com
 NEXT_PUBLIC_BACKEND_URL=http://host.docker.internal:8081
-DOMAIN=dashboard.a2bsoftware.com
+DOMAIN=vendor.a2bsoftware.com
 LOG_LEVEL=info
 EOF
 
 # 4. Deploy (loads app.tar.gz automatically since no image ref is given)
-ssh deploy@<host> 'cd /opt/a2bsoftware-frontend && bash scripts/deploy.sh'
+ssh deploy@<host> 'cd /opt/a2bsoftware-vendor && bash scripts/deploy.sh'
 ```

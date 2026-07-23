@@ -4,11 +4,10 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   FolderKanban, ArrowLeft, Loader2, Search,
-  RefreshCw, FileSpreadsheet, ChevronLeft, ChevronRight
+  RefreshCw, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -22,12 +21,12 @@ import { toast } from "sonner";
 import { NativeSelect } from "@/components/ui/native-select";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 
-// Row shape returned by /api/projects/survey-details, as consumed by the table below.
+// Row shape returned by /api/vendor/projects/{projectId}/survey-details - no
+// pid/gid/vendorName columns shown (always this vendor's own project/self,
+// no point displaying raw internal IDs) and no cpi/profit fields exist on
+// this shape at all (see SurveyDetailRowDto on the backend, reused as-is).
 interface SurveyDetailRow {
   id: number | string;
-  pid: number | string;
-  gid: string;
-  vendorName: string;
   projectName: string;
   clientName?: string;
   startIpAddress?: string;
@@ -43,7 +42,6 @@ interface SurveyDetailRow {
   countryName?: string;
 }
 
-// Option shapes returned by /api/projects/survey-filter-options.
 interface SurveyStatusOption {
   value: string;
   label: string;
@@ -68,26 +66,23 @@ export default function ViewProjectSurveyDetailsPage() {
   const initial_status = Array.isArray(slug) && slug.length > 1 ? slug[1] : "";
 
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
   const [dataset, setDataset] = useState<SurveyDetailRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
-  // Dropdowns lists
   const [filterOptions, setFilterOptions] = useState<SurveyFilterOptions>({
     countries: [],
     surveyStatusOptions: [],
   });
 
-  // Current filters
+  // No gid filter here (unlike the admin equivalent this page was forked
+  // from) - /api/vendor/projects/{id}/survey-details locks gid to the caller
+  // server-side regardless, so exposing that input would just be misleading.
   const [filters, setFilters] = useState({
-    gid: "",
     status: initial_status,
-    country_id: "",
   });
 
-  // Fetch filter dropdown options
   const loadFilterOptions = async () => {
     try {
       const res = await apiFetch(`${API_BASE_URL}/api/projects/survey-filter-options`);
@@ -102,28 +97,23 @@ export default function ViewProjectSurveyDetailsPage() {
     }
   };
 
-  // Fetch survey click logs. Takes page/limit/filters as REQUIRED explicit
-  // params (every call site below passes all three) rather than reading
-  // them via closure, so its identity only changes when project_id does -
-  // filters is deliberately NOT a dependency here, since it updates on
-  // every keystroke in the filter inputs (see the onChange handlers below)
-  // and this function's reference feeds the mount/page-change effect
-  // further down; including filters would make that effect re-fetch on
-  // every keystroke instead of only via the explicit Search button.
   const loadSurveyDetails = useCallback(
     async (targetPage: number, targetLimit: number, targetFilters: typeof filters) => {
+      if (!project_id) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const params = new URLSearchParams({
           pageNo: String(targetPage),
           maxPerPage: String(targetLimit),
         });
-        if (project_id) params.set("projectId", project_id);
-        if (targetFilters.gid) params.set("gid", targetFilters.gid);
         if (targetFilters.status !== "") params.set("status", targetFilters.status);
-        if (targetFilters.country_id) params.set("countryId", targetFilters.country_id);
 
-        const res = await apiFetch(`${API_BASE_URL}/api/projects/survey-details?${params.toString()}`);
+        const res = await apiFetch(
+          `${API_BASE_URL}/api/vendor/projects/${project_id}/survey-details?${params.toString()}`
+        );
 
         if (res.ok) {
           const data = await res.json();
@@ -143,27 +133,13 @@ export default function ViewProjectSurveyDetailsPage() {
   );
 
   useEffect(() => {
-    // Standard fetch-on-mount/param-change pattern: this function's own
-    // setState calls are flagged by this rule as if the effect itself sets
-    // state, but fetching data on mount/param change is exactly React's
-    // documented "synchronize with an external system" use case, not the
-    // render-derived-value anti-pattern this rule targets.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadFilterOptions();
   }, []);
 
   useEffect(() => {
-    // Standard fetch-on-mount/param-change pattern: this function's own
-    // setState calls are flagged by this rule as if the effect itself sets
-    // state, but fetching data on mount/param change is exactly React's
-    // documented "synchronize with an external system" use case, not the
-    // render-derived-value anti-pattern this rule targets.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSurveyDetails(page, limit, filters);
-    // filters is deliberately excluded below - this effect should only
-    // re-fetch on pagination/project change, not on every filter keystroke;
-    // the current filters value is still read (fresh, via normal closure)
-    // whenever the effect does run, just not a trigger for re-running it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, project_id, loadSurveyDetails]);
 
@@ -173,51 +149,14 @@ export default function ViewProjectSurveyDetailsPage() {
   };
 
   const handleRefresh = () => {
-    const resetFilters = {
-      gid: "",
-      status: "",
-      country_id: "",
-    };
+    const resetFilters = { status: "" };
     setFilters(resetFilters);
     setPage(1);
     loadSurveyDetails(1, limit, resetFilters);
   };
 
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const params = new URLSearchParams();
-      if (project_id) params.set("projectId", project_id);
-      if (filters.gid) params.set("gid", filters.gid);
-      if (filters.status !== "") params.set("status", filters.status);
-      if (filters.country_id) params.set("countryId", filters.country_id);
-
-      const res = await apiFetch(`${API_BASE_URL}/api/projects/survey-details/export?${params.toString()}`);
-
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `survey_details_project_${project_id || "all"}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        toast.success("CSV export completed successfully");
-      } else {
-        toast.error("Failed to export CSV file");
-      }
-    } catch (err) {
-      console.error("Error exporting survey details", err);
-      toast.error("Failed to export CSV file");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* 1. Header Band */}
       <div className="flex justify-between items-center pb-2 border-b border-zinc-200">
         <div>
           <h2 className="text-xl font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight flex items-center gap-2">
@@ -225,7 +164,7 @@ export default function ViewProjectSurveyDetailsPage() {
             Project Survey Clicks Details
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Audit redirect loops, IP locations, response status, and interview lengths.
+            Your own respondent activity for this project: IP, response status, and interview length.
           </p>
         </div>
         <Button
@@ -239,20 +178,9 @@ export default function ViewProjectSurveyDetailsPage() {
         </Button>
       </div>
 
-      {/* 2. Filter Search Card */}
       <Card className="border-zinc-200 shadow-sm bg-white dark:bg-zinc-900">
         <CardContent className="pt-5 pb-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold text-zinc-500">Supplier ID (GID)</Label>
-              <Input
-                placeholder="Supplier ID"
-                value={filters.gid}
-                onChange={(e) => setFilters({ ...filters, gid: e.target.value })}
-                className="h-9"
-              />
-            </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-zinc-500">Status</Label>
               <NativeSelect
@@ -263,20 +191,6 @@ export default function ViewProjectSurveyDetailsPage() {
                 <option value="">Select Status</option>
                 {filterOptions.surveyStatusOptions.map((opt: SurveyStatusOption) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </NativeSelect>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold text-zinc-500">Country</Label>
-              <NativeSelect
-                value={filters.country_id}
-                onChange={(e) => setFilters({ ...filters, country_id: e.target.value })}
-                className="h-9"
-              >
-                <option value="">Select Country</option>
-                {filterOptions.countries.map((c: CountryFilterOption) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </NativeSelect>
             </div>
@@ -300,25 +214,10 @@ export default function ViewProjectSurveyDetailsPage() {
               <Search size={13} />
               <span>Search</span>
             </Button>
-            <Button
-              onClick={handleExport}
-              disabled={exporting || loading}
-              variant="secondary"
-              size="sm"
-              className="flex items-center gap-1 shadow-sm"
-            >
-              {exporting ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <FileSpreadsheet size={13} />
-              )}
-              <span>Export CSV</span>
-            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* 3. Table / Results Card */}
       <Card className="border-zinc-200 shadow-sm overflow-hidden bg-white dark:bg-zinc-900">
         <CardContent className="p-0">
           {loading ? (
@@ -337,10 +236,7 @@ export default function ViewProjectSurveyDetailsPage() {
                 <TableHeader className="bg-zinc-50/70 dark:bg-zinc-900">
                   <TableRow className="border-b border-zinc-200">
                     <TableHead className="font-semibold text-zinc-600 h-10 w-10 text-center">SN</TableHead>
-                    <TableHead className="font-semibold text-zinc-600 h-10 w-12 text-center">ID</TableHead>
-                    <TableHead className="font-semibold text-zinc-600 h-10 w-16 text-center">Supplier ID</TableHead>
-                    <TableHead className="font-semibold text-zinc-600 h-10">Supplier Name</TableHead>
-                    <TableHead className="font-semibold text-zinc-600 h-10">Our PO</TableHead>
+                    <TableHead className="font-semibold text-zinc-600 h-10">Project</TableHead>
                     <TableHead className="font-semibold text-zinc-600 h-10">Client</TableHead>
                     <TableHead className="font-semibold text-zinc-600 h-10">Start IP</TableHead>
                     <TableHead className="font-semibold text-zinc-600 h-10">End IP</TableHead>
@@ -361,9 +257,6 @@ export default function ViewProjectSurveyDetailsPage() {
                     return (
                       <TableRow key={row.id} className="border-b border-zinc-150 hover:bg-zinc-50/50 transition-colors">
                         <TableCell className="text-center font-medium text-zinc-400 py-3">{rowNum}</TableCell>
-                        <TableCell className="text-center font-bold text-zinc-800 dark:text-zinc-200">{row.pid}</TableCell>
-                        <TableCell className="text-center text-zinc-500 font-mono">{row.gid}</TableCell>
-                        <TableCell className="font-medium text-zinc-700 dark:text-zinc-300">{row.vendorName}</TableCell>
                         <TableCell className="font-medium text-zinc-900 dark:text-zinc-100">{row.projectName}</TableCell>
                         <TableCell className="text-zinc-600 dark:text-zinc-300 font-medium">{row.clientName || "NA"}</TableCell>
                         <TableCell className="text-zinc-500 font-mono">{row.startIpAddress}</TableCell>
@@ -377,7 +270,7 @@ export default function ViewProjectSurveyDetailsPage() {
                         <TableCell className="text-center font-mono font-bold text-zinc-700 dark:text-zinc-300">{row.loi}</TableCell>
                         <TableCell className="text-center">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            row.status === "Complete" 
+                            row.status === "Complete"
                               ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400"
                               : row.status === "Disqualify"
                               ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/20 dark:text-red-400"
@@ -401,7 +294,6 @@ export default function ViewProjectSurveyDetailsPage() {
         </CardContent>
       </Card>
 
-      {/* 4. Pagination / Limit Controls */}
       {!loading && dataset.length > 0 && (
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 p-4 rounded-lg shadow-sm">
           <div className="flex items-center gap-2">

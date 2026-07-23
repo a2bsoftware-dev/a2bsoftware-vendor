@@ -107,8 +107,6 @@ jobs:
         run: |
           ssh $SSH_OPTS "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
             "bash '${{ vars.DEPLOY_PATH }}/scripts/write-env.sh'" <<EOF
-          ZAMP_KEY=${{ secrets.ZAMP_KEY }}
-          EXIT_HMAC_KEY=${{ secrets.EXIT_HMAC_KEY }}
           NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL }}
           NEXT_PUBLIC_BACKEND_URL=${{ vars.NEXT_PUBLIC_BACKEND_URL }}
           DOMAIN=${{ vars.DOMAIN }}

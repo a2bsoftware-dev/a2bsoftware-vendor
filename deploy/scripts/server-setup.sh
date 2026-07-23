@@ -117,8 +117,6 @@ Next steps:
      Secret   SSH_PORT                 = ${SSH_PORT}
      Secret   SSH_USER                 = ${DEPLOY_USER}
      Secret   SSH_PRIVATE_KEY          = <contents of a2b_deploy_key - the PRIVATE half>
-     Secret   ZAMP_KEY                 = <application secret>
-     Secret   EXIT_HMAC_KEY            = <application secret>
      Variable DEPLOY_PATH              = ${DEPLOY_PATH}
      Variable DOMAIN                   = ${DOMAIN}
      Variable NEXT_PUBLIC_API_BASE_URL = https://${DOMAIN}

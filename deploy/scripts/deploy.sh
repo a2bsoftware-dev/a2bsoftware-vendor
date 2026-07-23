@@ -53,7 +53,7 @@ mkdir -p "$STATE_DIR"
 # secret value containing `$(...)` or backticks would execute as shell if it
 # were. DOMAIN is the one plain value this script's own logic needs (for the
 # post-cutover public health check), pulled out with a literal grep/cut
-# instead. Everything else (ZAMP_KEY, EXIT_HMAC_KEY, ...) reaches the
+# instead. Everything else (NEXT_PUBLIC_API_BASE_URL, ...) reaches the
 # container only through Compose's own env_file loader, which parses .env
 # literally too, not via a shell.
 DOMAIN="$(grep -m1 '^DOMAIN=' .env | cut -d= -f2- || true)"

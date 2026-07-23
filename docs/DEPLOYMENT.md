@@ -109,8 +109,13 @@ with read access to the repo; Secrets are masked and access-controlled.
 | `SSH_PORT` | SSH port | `22` unless hardened to a custom port |
 | `SSH_USER` | The unprivileged deploy account | `deploy`. On a shared server, this is the SAME account `a2bsoftware-backend` already deploys as - no new user needed |
 | `SSH_PRIVATE_KEY` | Private half of a deploy keypair | On a shared server, reuse `a2bsoftware-backend`'s existing deploy key (same user, same privilege level either way). Otherwise generate a dedicated one: `ssh-keygen -t ed25519 -C "github-actions-deploy" -f ./a2b_deploy_key -N ""`, install the `.pub` half on the server, paste the contents of the private half (no `.pub`) here |
-| `ZAMP_KEY` | Application secret (external service key) | Currently in your local `.env` - **but see the urgent notice at the top of this file: rotate it, it's exposed in git history** |
-| `EXIT_HMAC_KEY` | Application secret (HMAC signing key for the survey exit-redirect callback) | Currently in your local `.env` |
+
+`ZAMP_KEY`/`EXIT_HMAC_KEY` are NOT needed here - they were leftover from this repo's
+original bootstrap as a copy of `a2bsoftware-frontend` and aren't referenced anywhere
+in this app's trimmed-down code (vendor-facing pages only call the backend's
+`/api/vendor/**` endpoints). See the urgent notice at the top of this file though -
+`ZAMP_KEY`'s value is still exposed in this repo's git history and should be rotated
+at its source regardless of whether this app uses it going forward.
 
 ## GitHub Variables
 
@@ -304,8 +309,6 @@ rsync -az --exclude ".env" --exclude "state/" \
 
 # 3. Write .env on the server (fill in real values - never commit this)
 ssh deploy@<host> 'bash /opt/a2bsoftware-vendor/scripts/write-env.sh' <<'EOF'
-ZAMP_KEY=...
-EXIT_HMAC_KEY=...
 NEXT_PUBLIC_API_BASE_URL=https://vendor.a2bsoftware.com
 NEXT_PUBLIC_BACKEND_URL=http://host.docker.internal:8081
 DOMAIN=vendor.a2bsoftware.com

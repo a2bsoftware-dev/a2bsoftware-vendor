@@ -24,7 +24,7 @@ interface User {
   permissions?: number[];
 }
 
-type AuthState = "loading" | "client" | "not-client";
+type AuthState = "loading" | "vendor" | "not-vendor";
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -69,11 +69,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       .then((data) => {
         if (data) {
           setUser(data);
-          // "Clients" is the role this portal is for - matches what
+          // "Vendors" is the role this portal is for - matches what
           // /api/auth/me already returns via the existing role/permission
           // system for any account (see AuthService.currentUser()), same as
           // a2bsoftware-frontend/-vendor check their own accepted roles.
-          setAuthState(data.role === "Clients" ? "client" : "not-client");
+          setAuthState(data.role === "Vendors" ? "vendor" : "not-vendor");
         }
       })
       .catch((err) => {
@@ -90,14 +90,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     );
   }
 
-  if (authState === "not-client") {
+  if (authState === "not-vendor") {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center space-y-4 px-4 text-center">
         <ShieldAlert className="h-12 w-12 text-amber-500" />
-        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Client access required</h1>
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Vendor access required</h1>
         <p className="max-w-sm text-sm text-zinc-500">
-          This account isn&apos;t set up as a client. Contact your A2B account manager to get
-          access to the client portal.
+          This account isn&apos;t set up as a vendor. Contact your A2B account manager to get
+          access to the vendor portal.
         </p>
         <Button onClick={logout} variant="outline">
           Log out

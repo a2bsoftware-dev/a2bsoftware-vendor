@@ -23,6 +23,7 @@ interface User {
   role?: string;
   vendor_id?: string;
   vendor_name?: string;
+  permissions?: number[];
 }
 
 type AuthState = "loading" | "vendor" | "not-vendor";

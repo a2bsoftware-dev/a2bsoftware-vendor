@@ -26,20 +26,31 @@ interface User {
   name?: string;
   email: string;
   vendor_name?: string;
+  permissions?: number[];
 }
 
-// Fixed nav for the vendor portal - just Dashboard and Projects, both scoped
-// server-side to the logged-in vendor's own data. No per-role/module gating
-// here (unlike the internal admin tool this app was forked from) - every
-// vendor account sees exactly the same two pages.
-const NAV_ITEMS = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Projects", href: "/projects", icon: FolderKanban }
-];
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  visible: boolean;
+}
 
 export function AppSidebar({ user }: { user: User | null }) {
   const pathname = usePathname();
   const handleLogout = useLogout();
+
+  // Same moduleId scheme + role/permission system a2bsoftware-frontend's own
+  // sidebar uses (Dashboard=1, Projects=6) - the "Vendors" role is already
+  // seeded with view-only access to exactly these two, via the same
+  // ClientUserPriv/AccessControlService /api/auth/me already returns
+  // permissions from for any role, not something specific to this app.
+  const hasAccess = (moduleId: number) => user?.permissions?.includes(moduleId) ?? false;
+
+  const navItems: NavItem[] = [
+    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, visible: hasAccess(1) },
+    { name: "Projects", href: "/projects", icon: FolderKanban, visible: hasAccess(6) }
+  ];
 
   return (
     <Sidebar collapsible="icon">
@@ -62,21 +73,23 @@ export function AppSidebar({ user }: { user: User | null }) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-1.5">
-              {NAV_ITEMS.map((item) => {
-                const IconComponent = item.icon;
-                return (
-                  <SidebarMenuItem key={item.name}>
-                    <SidebarMenuButton
-                      render={<Link href={item.href} />}
-                      isActive={pathname === item.href}
-                      tooltip={item.name}
-                    >
-                      <IconComponent />
-                      <span>{item.name}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {navItems
+                .filter((item) => item.visible)
+                .map((item) => {
+                  const IconComponent = item.icon;
+                  return (
+                    <SidebarMenuItem key={item.name}>
+                      <SidebarMenuButton
+                        render={<Link href={item.href} />}
+                        isActive={pathname === item.href}
+                        tooltip={item.name}
+                      >
+                        <IconComponent />
+                        <span>{item.name}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

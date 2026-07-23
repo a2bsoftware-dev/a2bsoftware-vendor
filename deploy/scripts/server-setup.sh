@@ -31,12 +31,12 @@
 # rsync for that - see docs/DEPLOYMENT.md "First-time VPS setup".
 #
 # Usage:
-#   DOMAIN=vendor.a2bsoftware.com ./server-setup.sh
+#   DOMAIN=dashboard.a2bsoftware.com ./server-setup.sh
 set -euo pipefail
 
-DOMAIN="${DOMAIN:?set DOMAIN, e.g. DOMAIN=vendor.a2bsoftware.com}"
+DOMAIN="${DOMAIN:?set DOMAIN, e.g. DOMAIN=dashboard.a2bsoftware.com}"
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
-DEPLOY_PATH="${DEPLOY_PATH:-/opt/a2bsoftware-vendor}"
+DEPLOY_PATH="${DEPLOY_PATH:-/opt/a2bsoftware-frontend}"
 SSH_PORT="${SSH_PORT:-22}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -68,16 +68,12 @@ chown "$DEPLOY_USER:$DEPLOY_USER" "/home/${DEPLOY_USER}/.ssh/authorized_keys"
 chmod 600 "/home/${DEPLOY_USER}/.ssh/authorized_keys"
 
 echo "==> Granting '${DEPLOY_USER}' passwordless sudo for exactly: nginx -t, systemctl reload nginx"
-# Same two commands (and same effective privilege) as a2bsoftware-backend's/
-# a2bsoftware-frontend's own sudoers rule for this - on a shared server
-# they'd all resolve to an identical rule anyway; this filename just avoids
-# assuming this repo is the one that got there first.
-cat > /etc/sudoers.d/a2b-vendor-nginx-reload <<EOF
+cat > /etc/sudoers.d/a2b-frontend-nginx-reload <<EOF
 ${DEPLOY_USER} ALL=(root) NOPASSWD: /usr/sbin/nginx -t
 ${DEPLOY_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
 EOF
-chmod 440 /etc/sudoers.d/a2b-vendor-nginx-reload
-visudo -cf /etc/sudoers.d/a2b-vendor-nginx-reload
+chmod 440 /etc/sudoers.d/a2b-frontend-nginx-reload
+visudo -cf /etc/sudoers.d/a2b-frontend-nginx-reload
 
 echo "==> Firewall (ufw): allow SSH/${SSH_PORT}, 80, 443 only"
 ufw allow "${SSH_PORT}/tcp"
@@ -117,34 +113,33 @@ Next steps:
      Secret   SSH_PORT                 = ${SSH_PORT}
      Secret   SSH_USER                 = ${DEPLOY_USER}
      Secret   SSH_PRIVATE_KEY          = <contents of a2b_deploy_key - the PRIVATE half>
+     Secret   ZAMP_KEY                 = <application secret>
+     Secret   EXIT_HMAC_KEY            = <application secret>
      Variable DEPLOY_PATH              = ${DEPLOY_PATH}
      Variable DOMAIN                   = ${DOMAIN}
      Variable NEXT_PUBLIC_API_BASE_URL = https://${DOMAIN}
      Variable NEXT_PUBLIC_BACKEND_URL  = http://host.docker.internal:8081
    (Full list and how to get each value: docs/DEPLOYMENT.md)
 
-3. Point ${DOMAIN}'s DNS A/AAAA record at ${PUBLIC_IP} - a NEW record, even
-   on a shared server already running a2bsoftware-backend/-frontend, since
-   this is its own subdomain (vendor.a2bsoftware.com), not one they already
-   answer for.
+3. Point ${DOMAIN}'s DNS A/AAAA record at ${PUBLIC_IP} - skip this if it
+   already points here (e.g. a shared server already running
+   a2bsoftware-backend on this same domain).
 
-4. Seed this repo's one piece of its own nginx vhost - the upstream
-   include a2bsoftware-backend's vendor.a2bsoftware.com.conf `include`s
+4. Seed this repo's one piece of the shared nginx vhost - the upstream
+   include a2bsoftware-backend's dashboard.a2bsoftware.com.conf `include`s
    (see that repo's nginx config) - BEFORE that repo's nginx is reloaded
    with the include pointed at it, or nginx will fail to start:
      install -d -o ${DEPLOY_USER} -g ${DEPLOY_USER} ${DEPLOY_PATH}/state
      cat > ${DEPLOY_PATH}/state/upstream.conf <<'UPSTREAM_EOF'
-     upstream a2b_vendor {
-       server 127.0.0.1:4000;
+     upstream a2b_frontend {
+       server 127.0.0.1:3000;
      }
      UPSTREAM_EOF
      chown ${DEPLOY_USER}:${DEPLOY_USER} ${DEPLOY_PATH}/state/upstream.conf
 
-   This repo does NOT own or install its own vhost/TLS cert itself - that's
-   a2bsoftware-backend's job (its server-setup.sh + certbot run, covering
-   vendor.a2bsoftware.com alongside dashboard.a2bsoftware.com/
-   auth.a2bsoftware.com - see that repo's nginx/vendor.a2bsoftware.com.conf).
-   Push to main (or run the Deploy workflow) once the above is in place for
-   the first real deploy.
+   This repo does NOT own or install the shared vhost/TLS cert itself -
+   that's a2bsoftware-backend's job (its server-setup.sh + bootstrap-tls.sh,
+   already run if this is a shared server). Push to main (or run the Deploy
+   workflow) once the above is in place for the first real deploy.
 ============================================================
 EOF

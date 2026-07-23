@@ -21,12 +21,10 @@ interface User {
   email: string;
   role_id: string;
   role?: string;
-  vendor_id?: string;
-  vendor_name?: string;
   permissions?: number[];
 }
 
-type AuthState = "loading" | "vendor" | "not-vendor";
+type AuthState = "loading" | "client" | "not-client";
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -71,13 +69,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       .then((data) => {
         if (data) {
           setUser(data);
-          // vendor_id is the SAME field VendorPortalController.requireVendorId()
-          // checks server-side before answering any /api/vendor/** call - this
-          // mirrors that check here instead of letting a non-vendor account
-          // silently hit 403s on every dashboard/projects fetch with no
-          // explanation. A user without it (Admin/PM/whatever role they came
-          // in with) simply isn't what this app is for.
-          setAuthState(data.vendor_id ? "vendor" : "not-vendor");
+          // "Clients" is the role this portal is for - matches what
+          // /api/auth/me already returns via the existing role/permission
+          // system for any account (see AuthService.currentUser()), same as
+          // a2bsoftware-frontend/-vendor check their own accepted roles.
+          setAuthState(data.role === "Clients" ? "client" : "not-client");
         }
       })
       .catch((err) => {
@@ -94,14 +90,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     );
   }
 
-  if (authState === "not-vendor") {
+  if (authState === "not-client") {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center space-y-4 px-4 text-center">
         <ShieldAlert className="h-12 w-12 text-amber-500" />
-        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Vendor access required</h1>
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">Client access required</h1>
         <p className="max-w-sm text-sm text-zinc-500">
-          This account isn&apos;t linked to a vendor. Contact your A2B account manager to get
-          access to the vendor portal.
+          This account isn&apos;t set up as a client. Contact your A2B account manager to get
+          access to the client portal.
         </p>
         <Button onClick={logout} variant="outline">
           Log out

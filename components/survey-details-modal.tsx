@@ -18,14 +18,13 @@ import {
   TableRow
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Download, Loader2 } from "lucide-react";
 
-// Deliberately excludes client_cpi/vendor_cpi/profit and the pid/gid/vendorName
-// columns the admin tool's equivalent modal shows - a vendor viewing their own
-// transaction log doesn't need raw internal IDs or a2b's own margin, and
-// "supplier" is always themselves here anyway. See VendorDashboardRepository
-// (backend) for the matching query-level exclusion.
 interface SurveyTransaction {
   id: string;
+  pid: string;
+  gid: string;
+  vendorName?: string;
   project_name: string;
   clientName?: string;
   start_ip_address: string;
@@ -44,19 +43,43 @@ interface SurveyDetailsModalProps {
   onClose: () => void;
   title: string;
   data: SurveyTransaction[];
+  exportLoading: boolean;
+  onExportClick: () => void;
 }
 
-export default function SurveyDetailsModal({ isOpen, onClose, title, data }: SurveyDetailsModalProps) {
+export default function SurveyDetailsModal({
+  isOpen,
+  onClose,
+  title,
+  data,
+  exportLoading,
+  onExportClick
+}: SurveyDetailsModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[95vw] md:max-w-[90vw] lg:max-w-[85vw] max-h-[90vh] flex flex-col p-6 overflow-hidden bg-white dark:bg-zinc-950">
-        <DialogHeader className="border-b border-zinc-100 dark:border-zinc-800 pb-3 flex-shrink-0">
-          <DialogTitle className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
-            Today&apos;s Statistics - {title} ({data.length})
-          </DialogTitle>
-          <DialogDescription className="text-xs text-zinc-500">
-            View transaction logs recorded today for this status type.
-          </DialogDescription>
+        <DialogHeader className="flex flex-row items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3 flex-shrink-0">
+          <div>
+            <DialogTitle className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
+              Today&apos;s Statistics - {title} ({data.length})
+            </DialogTitle>
+            <DialogDescription className="text-xs text-zinc-500">
+              View transaction logs recorded today for this status type.
+            </DialogDescription>
+          </div>
+          <Button
+            onClick={onExportClick}
+            disabled={exportLoading || data.length === 0}
+            variant="outline"
+            className="flex items-center gap-1.5 border-zinc-200 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 dark:bg-yellow-950/20 dark:text-yellow-400 dark:border-yellow-900/50"
+          >
+            {exportLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            <span>Export Dashboard</span>
+          </Button>
         </DialogHeader>
 
         {/* Scrollable table container */}
@@ -65,7 +88,10 @@ export default function SurveyDetailsModal({ isOpen, onClose, title, data }: Sur
             <TableHeader className="bg-zinc-50 dark:bg-zinc-900/50 sticky top-0 z-10 shadow-sm">
               <TableRow>
                 <TableHead className="w-12 text-center font-bold">SN</TableHead>
-                <TableHead className="font-bold min-w-[150px]">Project</TableHead>
+                <TableHead className="font-bold">Project ID</TableHead>
+                <TableHead className="font-bold">Supplier ID</TableHead>
+                <TableHead className="font-bold">Supplier Name</TableHead>
+                <TableHead className="font-bold min-w-[150px]">Our PO</TableHead>
                 <TableHead className="font-bold">Client</TableHead>
                 <TableHead className="font-bold">Start IP</TableHead>
                 <TableHead className="font-bold">End IP</TableHead>
@@ -81,35 +107,40 @@ export default function SurveyDetailsModal({ isOpen, onClose, title, data }: Sur
             <TableBody>
               {data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="h-32 text-center text-zinc-500">
+                  <TableCell colSpan={15} className="h-32 text-center text-zinc-500">
                     No transactions found for today.
                   </TableCell>
                 </TableRow>
               ) : (
-                data.map((row, index) => (
-                  <TableRow key={row.id || index} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
-                    <TableCell className="text-center text-zinc-500 font-mono text-xs">{index + 1}</TableCell>
-                    <TableCell className="text-xs font-semibold max-w-[200px] truncate" title={row.project_name}>
-                      {row.project_name}
-                    </TableCell>
-                    <TableCell className="text-xs">{row.clientName || "NA"}</TableCell>
-                    <TableCell className="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.start_ip_address}</TableCell>
-                    <TableCell className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
-                      {row.end_ip_address || row.start_ip_address}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{row.start_time || "NA"}</TableCell>
-                    <TableCell className="font-mono text-xs">{row.end_time || "NA"}</TableCell>
-                    <TableCell className="text-xs">{row.start_date || "NA"}</TableCell>
-                    <TableCell className="text-xs">{row.end_date || "NA"}</TableCell>
-                    <TableCell className="font-mono text-[10px] text-zinc-500 truncate max-w-[120px]" title={row.ref_id}>
-                      {row.ref_id}
-                    </TableCell>
-                    <TableCell className="font-mono text-[10px] text-zinc-500 truncate max-w-[100px]" title={row.user_id}>
-                      {row.user_id}
-                    </TableCell>
-                    <TableCell className="text-xs">{row.country_name || "NA"}</TableCell>
-                  </TableRow>
-                ))
+                data.map((row, index) => {
+                  return (
+                    <TableRow key={row.id || index} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
+                      <TableCell className="text-center text-zinc-500 font-mono text-xs">{index + 1}</TableCell>
+                      <TableCell className="font-medium text-xs">{row.pid}</TableCell>
+                      <TableCell className="text-xs">{row.gid}</TableCell>
+                      <TableCell className="text-xs">{row.vendorName || "Internal Team"}</TableCell>
+                      <TableCell className="text-xs font-semibold max-w-[200px] truncate" title={row.project_name}>
+                        {row.project_name}
+                      </TableCell>
+                      <TableCell className="text-xs">{row.clientName || "NA"}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.start_ip_address}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
+                        {row.end_ip_address || row.start_ip_address}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{row.start_time || "NA"}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.end_time || "NA"}</TableCell>
+                      <TableCell className="text-xs">{row.start_date || "NA"}</TableCell>
+                      <TableCell className="text-xs">{row.end_date || "NA"}</TableCell>
+                      <TableCell className="font-mono text-[10px] text-zinc-500 truncate max-w-[120px]" title={row.ref_id}>
+                        {row.ref_id}
+                      </TableCell>
+                      <TableCell className="font-mono text-[10px] text-zinc-500 truncate max-w-[100px]" title={row.user_id}>
+                        {row.user_id}
+                      </TableCell>
+                      <TableCell className="text-xs">{row.country_name || "NA"}</TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

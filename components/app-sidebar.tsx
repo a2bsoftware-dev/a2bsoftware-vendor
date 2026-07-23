@@ -25,7 +25,8 @@ interface User {
   user_name?: string;
   name?: string;
   email: string;
-  vendor_name?: string;
+  role_id: string;
+  role?: string;
   permissions?: number[];
 }
 
@@ -41,7 +42,7 @@ export function AppSidebar({ user }: { user: User | null }) {
   const handleLogout = useLogout();
 
   // Same moduleId scheme + role/permission system a2bsoftware-frontend's own
-  // sidebar uses (Dashboard=1, Projects=6) - the "Vendors" role is already
+  // sidebar uses (Dashboard=1, Projects=6) - the "Clients" role is already
   // seeded with view-only access to exactly these two, via the same
   // ClientUserPriv/AccessControlService /api/auth/me already returns
   // permissions from for any role, not something specific to this app.
@@ -100,10 +101,10 @@ export function AppSidebar({ user }: { user: User | null }) {
           <SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
             <div className="flex flex-col overflow-hidden px-2 py-1.5">
               <span className="truncate text-sm font-semibold text-sidebar-foreground">
-                {user?.user_name || user?.name || user?.email || "Vendor User"}
+                {user?.user_name || user?.name || user?.email || "Client User"}
               </span>
               <span className="truncate text-xs text-sidebar-foreground/60">
-                {user?.vendor_name || "Vendor"}
+                {user?.role || "Client"}
               </span>
             </div>
           </SidebarMenuItem>

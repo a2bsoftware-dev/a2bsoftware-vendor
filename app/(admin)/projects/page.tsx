@@ -17,28 +17,22 @@ import {
 } from "@/components/ui/table";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 
-// Row shape from GET /api/vendor/projects - a project only appears here once
-// this vendor has actual click history on it (see VendorDashboardRepository
-// on the backend - there's no separate "assigned projects" concept, this IS
-// derived straight from start_survey_informations). Counts are per-status,
-// not client_cpi/vendor_cpi/profit - this is a read-only analytics view, not
-// the admin CRUD grid this page used to be.
-interface VendorProject {
+// Row shape from GET /api/projects - the same endpoint the internal admin
+// tool uses (no dedicated /api/client/** endpoint exists yet, so this is NOT
+// scoped to one client's own projects - it lists every project). Read-only:
+// no add/edit/delete/status-change/duplicate actions, and no
+// client_cpi/vendor_cpi/profit fields (this DTO never carried them).
+interface Project {
   id: string;
-  project_name: string;
-  status: number;
-  status_label: string;
-  country_name?: string;
-  complete_count: number | string;
-  disqualify_count: number | string;
-  quota_full_count: number | string;
-  security_term_count: number | string;
-  drop_count: number | string;
-  total_hits: number | string;
-}
-
-function toNumber(value: number | string): number {
-  return typeof value === "number" ? value : parseInt(value, 10) || 0;
+  projectName: string;
+  countryName?: string;
+  hits?: number;
+  quotaFull?: number;
+  complete?: number;
+  disqualify?: number;
+  securityTerm?: number;
+  statusId: number;
+  status?: string;
 }
 
 const STATUS_COLORS: Record<number, string> = {
@@ -54,13 +48,13 @@ const STATUS_COLORS: Record<number, string> = {
 export default function ProjectsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState<VendorProject[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [search, setSearch] = useState("");
 
   const fetchProjects = useCallback(async (showLoader = false) => {
     if (showLoader) setLoading(true);
     try {
-      const res = await apiFetch(`${API_BASE_URL}/api/vendor/projects`);
+      const res = await apiFetch(`${API_BASE_URL}/api/projects?maxPerPage=1000`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.projects) {
@@ -68,7 +62,7 @@ export default function ProjectsPage() {
         }
       }
     } catch (err) {
-      console.error("Error fetching vendor projects", err);
+      console.error("Error fetching projects", err);
     } finally {
       if (showLoader) setLoading(false);
     }
@@ -84,7 +78,7 @@ export default function ProjectsPage() {
   }, [fetchProjects]);
 
   const filteredProjects = projects.filter((p) =>
-    p.project_name?.toLowerCase().includes(search.toLowerCase())
+    p.projectName?.toLowerCase().includes(search.toLowerCase())
   );
 
   const goToStatusDetails = (projectId: string, statusCode: number) => {
@@ -109,7 +103,7 @@ export default function ProjectsPage() {
             Your Projects
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Projects you&apos;ve delivered survey traffic to, with your own completion stats.
+            Survey projects and their completion stats.
           </p>
         </div>
         <Button
@@ -146,31 +140,28 @@ export default function ProjectsPage() {
                 <TableHead className="font-bold text-right">Disqualify</TableHead>
                 <TableHead className="font-bold text-right">Quota Full</TableHead>
                 <TableHead className="font-bold text-right">Security Term</TableHead>
-                <TableHead className="font-bold text-right">Drop</TableHead>
                 <TableHead className="font-bold text-right">Total</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredProjects.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-32 text-center text-zinc-500">
-                    {projects.length === 0
-                      ? "No projects yet - this list fills in as soon as your first respondent completes a survey."
-                      : "No projects match your search."}
+                  <TableCell colSpan={8} className="h-32 text-center text-zinc-500">
+                    {projects.length === 0 ? "No projects yet." : "No projects match your search."}
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredProjects.map((project) => (
                   <TableRow key={project.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
-                    <TableCell className="font-semibold text-sm max-w-[240px] truncate" title={project.project_name}>
-                      {project.project_name}
+                    <TableCell className="font-semibold text-sm max-w-[240px] truncate" title={project.projectName}>
+                      {project.projectName}
                     </TableCell>
                     <TableCell>
-                      <Badge className={STATUS_COLORS[project.status] || STATUS_COLORS[1]}>
-                        {project.status_label}
+                      <Badge className={STATUS_COLORS[project.statusId] || STATUS_COLORS[1]}>
+                        {project.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm">{project.country_name || "NA"}</TableCell>
+                    <TableCell className="text-sm">{project.countryName || "NA"}</TableCell>
                     <TableCell className="text-right">
                       <Button
                         variant="ghost"
@@ -178,7 +169,7 @@ export default function ProjectsPage() {
                         onClick={() => goToStatusDetails(project.id, 1)}
                         className="h-7 px-2 font-mono hover:bg-cyan-50 hover:text-cyan-700 text-cyan-600 dark:text-cyan-400"
                       >
-                        {toNumber(project.complete_count)}
+                        {project.complete ?? 0}
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">
@@ -188,7 +179,7 @@ export default function ProjectsPage() {
                         onClick={() => goToStatusDetails(project.id, 2)}
                         className="h-7 px-2 font-mono hover:bg-red-50 hover:text-red-700 text-red-600 dark:text-red-400"
                       >
-                        {toNumber(project.disqualify_count)}
+                        {project.disqualify ?? 0}
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">
@@ -198,7 +189,7 @@ export default function ProjectsPage() {
                         onClick={() => goToStatusDetails(project.id, 3)}
                         className="h-7 px-2 font-mono hover:bg-amber-50 hover:text-amber-700 text-amber-600 dark:text-amber-400"
                       >
-                        {toNumber(project.quota_full_count)}
+                        {project.quotaFull ?? 0}
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">
@@ -208,22 +199,10 @@ export default function ProjectsPage() {
                         onClick={() => goToStatusDetails(project.id, 4)}
                         className="h-7 px-2 font-mono hover:bg-zinc-100 text-zinc-600"
                       >
-                        {toNumber(project.security_term_count)}
+                        {project.securityTerm ?? 0}
                       </Button>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => goToStatusDetails(project.id, 0)}
-                        className="h-7 px-2 font-mono hover:bg-emerald-50 hover:text-emerald-700 text-emerald-600 dark:text-emerald-400"
-                      >
-                        {toNumber(project.drop_count)}
-                      </Button>
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-sm">
-                      {toNumber(project.total_hits)}
-                    </TableCell>
+                    <TableCell className="text-right font-bold text-sm">{project.hits ?? 0}</TableCell>
                   </TableRow>
                 ))
               )}

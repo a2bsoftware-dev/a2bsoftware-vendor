@@ -3,21 +3,43 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import DashboardStatsCards from "@/components/dashboard-stats-cards";
-import ProjectStatusCards from "@/components/project-status-cards";
-import MonthlyStatsSection from "@/components/monthly-stats-section";
 import SurveyDetailsModal from "@/components/survey-details-modal";
 import ProjectDetailsModal from "@/components/project-details-modal";
-import StatusBreakdownChart from "@/components/status-breakdown-chart";
-import SurveyTrendChart from "@/components/survey-trend-chart";
+import TodayStatusPieChart from "@/components/charts/today-status-pie-chart";
+import ProjectStatusBarChart from "@/components/charts/project-status-bar-chart";
+import MonthlyTrendAreaChart, { DailyTrendRow } from "@/components/charts/monthly-trend-area-chart";
+import StatusRadarChart from "@/components/charts/status-radar-chart";
+import CompletionRadialChart from "@/components/charts/completion-radial-chart";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 
 // Raw {day, status, cnt} triple from /api/vendor/dashboard/monthly-statistics -
-// see SurveyTrendChart for how these get grouped into one bar per day.
+// already grouped by day+status server-side (unlike the admin-wide
+// monthlyStastics rows below, which are one row per survey attempt) - see
+// buildVendorDailyTrend for how these get folded into one row per day.
 interface DailyStatusCount {
   day: string;
   status: number | null;
   cnt: number | string;
+}
+
+function buildVendorDailyTrend(rows: DailyStatusCount[]): DailyTrendRow[] {
+  const byDay = new Map<string, DailyTrendRow>();
+  for (const row of rows) {
+    let entry = byDay.get(row.day);
+    if (!entry) {
+      entry = { day: row.day, complete: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0 };
+      byDay.set(row.day, entry);
+    }
+    const cnt = typeof row.cnt === "number" ? row.cnt : parseInt(row.cnt, 10) || 0;
+    switch (row.status) {
+      case 1: entry.complete += cnt; break;
+      case 2: entry.disqualify += cnt; break;
+      case 3: entry.quotaFull += cnt; break;
+      case 4: entry.securityTerm += cnt; break;
+      default: entry.drop += cnt; break;
+    }
+  }
+  return Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));
 }
 
 // Shape of a single row in `surveyInformations` (and the grouped arrays derived
@@ -59,10 +81,35 @@ interface ProjectStatusItem {
   status: number;
 }
 
-// Shape of a single row in `monthlyStastics` - only `status` is read (to
-// bucket counts by status), so that's all this file needs to declare.
+// Shape of a single row in `monthlyStastics`. status buckets the per-status
+// counters; start_time additionally feeds the monthly trend area chart's
+// per-day grouping (see buildDailyTrend).
 interface MonthlyStatisticItem {
   status: number;
+  start_time?: string;
+}
+
+// Groups raw monthlyStastics rows (one per survey attempt) into one row per
+// calendar day, counted by status - the shape MonthlyTrendAreaChart expects.
+function buildDailyTrend(rows: MonthlyStatisticItem[]): DailyTrendRow[] {
+  const byDay = new Map<string, DailyTrendRow>();
+  for (const row of rows) {
+    if (!row.start_time) continue;
+    const day = row.start_time.slice(0, 10);
+    let entry = byDay.get(day);
+    if (!entry) {
+      entry = { day, complete: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0 };
+      byDay.set(day, entry);
+    }
+    switch (row.status) {
+      case 1: entry.complete++; break;
+      case 2: entry.disqualify++; break;
+      case 3: entry.quotaFull++; break;
+      case 4: entry.securityTerm++; break;
+      default: entry.drop++; break;
+    }
+  }
+  return Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));
 }
 
 export default function DashboardPage() {
@@ -102,11 +149,6 @@ export default function DashboardPage() {
   const [completed, setCompleted] = useState<ProjectStatusItem[]>([]);
   const [awaitings, setAwaitings] = useState<ProjectStatusItem[]>([]);
   const [closed, setClosed] = useState<ProjectStatusItem[]>([]);
-
-  const [completsMonthlyCount, setCompletsMonthlyCount] = useState(0);
-  const [disqualifiesMonthlyCount, setDisqualifiesMonthlyCount] = useState(0);
-  const [quotaFullsMonthlyCount, setQuotaFullsMonthlyCount] = useState(0);
-  const [securityTermsMonthlyCount, setSecurityTermsMonthlyCount] = useState(0);
 
   // Grouping calculations (daily). Wrapped in useCallback so fetchDashboardInit
   // (below) gets a stable reference - these only call the stable setState
@@ -162,26 +204,6 @@ export default function DashboardPage() {
     setClosed(cls);
   }, []);
 
-  // Grouping calculations (monthly statistics)
-  const calculateMonthlyStatistics = useCallback((data: MonthlyStatisticItem[]) => {
-    let cCount = 0;
-    let dqCount = 0;
-    let qfCount = 0;
-    let stCount = 0;
-
-    data.forEach((item) => {
-      if (item.status === 1) cCount++;
-      else if (item.status === 2) dqCount++;
-      else if (item.status === 3) qfCount++;
-      else if (item.status === 4) stCount++;
-    });
-
-    setCompletsMonthlyCount(cCount);
-    setDisqualifiesMonthlyCount(dqCount);
-    setQuotaFullsMonthlyCount(qfCount);
-    setSecurityTermsMonthlyCount(stCount);
-  }, []);
-
   // Fetch functions. Wrapped in useCallback (depending only on the
   // corresponding memoized calculate* function above) so the mount effect
   // below can safely list them as dependencies without triggering a new
@@ -226,13 +248,12 @@ export default function DashboardPage() {
         const data = await res.json();
         if (data.success && data.monthlyStastics) {
           setMonthlyStastics(data.monthlyStastics);
-          calculateMonthlyStatistics(data.monthlyStastics);
         }
       }
     } catch (err) {
       console.error("Error fetching monthly statistics", err);
     }
-  }, [calculateMonthlyStatistics]);
+  }, []);
 
   const fetchVendorToday = useCallback(async (trackActivity = true) => {
     try {
@@ -263,7 +284,7 @@ export default function DashboardPage() {
   }, []);
 
   // Today's raw rows (0=Drop,1=Complete,2=Disqualify,3=QuotaFull,4=SecurityTerm)
-  // aggregated into the counts StatusBreakdownChart expects.
+  // aggregated into the counts TodayStatusPieChart expects.
   const vendorTodayBreakdown = vendorTodayRows.reduce(
     (acc, row) => {
       switch (row.status) {
@@ -430,11 +451,12 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* 1. Today's Project Statistics Card Section */}
+      {/* 1. Your Own Analytics - scoped to just this vendor's own hits
+          (/api/vendor/dashboard/*), never other vendors' traffic */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
-            Today&apos;s Project Statistics
+            Your Analytics
           </h2>
           <Button
             onClick={() => window.open("/export-dashboard", "_blank")}
@@ -445,60 +467,69 @@ export default function DashboardPage() {
             Export Dashboard
           </Button>
         </div>
-        <DashboardStatsCards
-          completsCount={complets.length}
-          disqualifiesCount={disqualifies.length}
-          quotaFullsCount={quotaFulls.length}
-          securityTermsCount={securityTerms.length}
-          dropsCount={drops.length}
-          onCardClick={handleShowDailyFullDetails}
-        />
-      </section>
-
-      {/* 2. Project Status Grid Section */}
-      <section className="space-y-3 pt-2">
-        <h2 className="text-base font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
-          Project Status Counters
-        </h2>
-        <ProjectStatusCards
-          biddingsCount={biddings.length}
-          testingsCount={testings.length}
-          runningsCount={runnings.length}
-          holdsCount={holds.length}
-          awaitingsCount={awaitings.length}
-          closedCount={closed.length}
-          completedCount={completed.length}
-          onCardClick={handleShowDailyFullProjectDetails}
-        />
-      </section>
-
-      {/* 3. Monthly Statistics Section */}
-      <section className="pt-2">
-        <MonthlyStatsSection
-          completsMonthlyCount={completsMonthlyCount}
-          disqualifiesMonthlyCount={disqualifiesMonthlyCount}
-          quotaFullsMonthlyCount={quotaFullsMonthlyCount}
-          securityTermMonthlyCount={securityTermsMonthlyCount}
-          totalMonthlyCount={monthlyStastics.length}
-        />
-      </section>
-
-      {/* 4. Your Own Analytics - scoped to just this vendor's own hits
-          (/api/vendor/dashboard/*), never other vendors' traffic */}
-      <section className="space-y-3 pt-2">
-        <h2 className="text-base font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
-          Your Analytics
-        </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <StatusBreakdownChart
+          <TodayStatusPieChart
             completed={vendorTodayBreakdown.completed}
             disqualify={vendorTodayBreakdown.disqualify}
             quotaFull={vendorTodayBreakdown.quotaFull}
             securityTerm={vendorTodayBreakdown.securityTerm}
             drop={vendorTodayBreakdown.drop}
           />
-          <SurveyTrendChart data={vendorDailyStatusCounts} />
+          <MonthlyTrendAreaChart data={buildVendorDailyTrend(vendorDailyStatusCounts)} />
         </div>
+      </section>
+
+      {/* 2. Today's Survey Activity (admin-wide) */}
+      <section className="space-y-3 pt-2">
+        <h2 className="text-base font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+          Today&apos;s Survey Activity (All Vendors)
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TodayStatusPieChart
+            completed={complets.length}
+            disqualify={disqualifies.length}
+            quotaFull={quotaFulls.length}
+            securityTerm={securityTerms.length}
+            drop={drops.length}
+            onSliceClick={(key) =>
+              handleShowDailyFullDetails(
+                key === "completed" ? 1 : key === "disqualify" ? 2 : key === "quotaFull" ? 3 : key === "securityTerm" ? 4 : 0
+              )
+            }
+          />
+          <CompletionRadialChart completed={complets.length} totalHits={surveyInformations.length} />
+        </div>
+      </section>
+
+      {/* 3. Project Status */}
+      <section className="space-y-3 pt-2">
+        <h2 className="text-base font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+          Project Status Counters
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ProjectStatusBarChart
+            bidding={biddings.length}
+            testing={testings.length}
+            running={runnings.length}
+            hold={holds.length}
+            awaiting={awaitings.length}
+            closed={closed.length}
+            completed={completed.length}
+            onBarClick={handleShowDailyFullProjectDetails}
+          />
+          <StatusRadarChart
+            completed={complets.length}
+            disqualify={disqualifies.length}
+            quotaFull={quotaFulls.length}
+            securityTerm={securityTerms.length}
+            drop={drops.length}
+          />
+        </div>
+      </section>
+
+      {/* 4. Monthly Trend (admin-wide) */}
+      <section className="pt-2">
+        <MonthlyTrendAreaChart data={buildDailyTrend(monthlyStastics)} />
       </section>
 
       {/* Details Modals */}

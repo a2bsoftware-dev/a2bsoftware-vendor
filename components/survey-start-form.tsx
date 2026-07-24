@@ -43,8 +43,15 @@ export function SurveyStartForm() {
   const vendorId = searchParams.get("vendorId");
   const uid = searchParams.get("uid");
 
-  const [status, setStatus] = useState<Status>("loading");
-  const [errorMessage, setErrorMessage] = useState("");
+  const missingParams = !pid || !vendorId || !uid;
+
+  // Computed once at mount from URL params, not set reactively in the effect
+  // below - there's nothing to "synchronize with an external system" here,
+  // it's a pure derived value already known at render time.
+  const [status, setStatus] = useState<Status>(() => (missingParams ? "error" : "loading"));
+  const [errorMessage, setErrorMessage] = useState(() =>
+    missingParams ? "This link is missing required information. Please request a new link." : ""
+  );
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -77,15 +84,10 @@ export function SurveyStartForm() {
       setErrorMessage("Error connecting to the server.");
       setStatus("error");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid, vendorId, uid]);
 
   useEffect(() => {
-    if (!pid || !vendorId || !uid) {
-      setErrorMessage("This link is missing required information. Please request a new link.");
-      setStatus("error");
-      return;
-    }
+    if (missingParams) return;
 
     let cancelled = false;
     (async () => {

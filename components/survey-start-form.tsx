@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ClipboardList, Loader2, TriangleAlert } from "lucide-react";
+import { Ban, ClipboardList, Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -29,7 +29,14 @@ interface SurveyQuestion {
 }
 
 type AnswerValue = string | string[];
-type Status = "loading" | "form" | "redirecting" | "error";
+type Status = "loading" | "form" | "redirecting" | "error" | "blocked";
+
+// Where a blocked respondent lands when there's no vendor-specific
+// complete/disqualify/quotaFull/securityTerm link configured to send them
+// to instead - a relative path, so it resolves against whichever origin
+// this page itself is running on (never a fixed/hardcoded domain).
+const BLOCKED_REDIRECT_PATH = "/projects";
+const BLOCKED_REDIRECT_SECONDS = 3;
 
 // Gate shown when a respondent opens a vendor's personalized portal link -
 // see SurveyRouterController.startProjectForVendor (backend), which redirects
@@ -43,22 +50,36 @@ export function SurveyStartForm() {
   const vendorId = searchParams.get("vendorId");
   const uid = searchParams.get("uid");
 
-  const missingParams = !pid || !vendorId || !uid;
-
-  // Computed once at mount from URL params, not set reactively in the effect
-  // below - there's nothing to "synchronize with an external system" here,
-  // it's a pure derived value already known at render time.
-  const [status, setStatus] = useState<Status>(() => (missingParams ? "error" : "loading"));
-  const [errorMessage, setErrorMessage] = useState(() =>
-    missingParams ? "This link is missing required information. Please request a new link." : ""
-  );
+  // Missing/invalid pid, vendorId, or uid is NOT handled client-side - the
+  // backend treats a malformed link as disqualified (recording it against
+  // the project when one is resolvable) and returns the same {blocked:true}
+  // shape as any other outcome, so it's still worth calling with whatever's
+  // present (empty string for anything absent).
+  const [status, setStatus] = useState<Status>("loading");
+  const [errorMessage, setErrorMessage] = useState("");
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [blockedSecondsLeft, setBlockedSecondsLeft] = useState(BLOCKED_REDIRECT_SECONDS);
 
   const goTo = (url: string) => {
     setStatus("redirecting");
     window.location.href = url;
+  };
+
+  // A "blocked" response (quota full / already completed / disqualified
+  // twice / security-terminated) is a well-formed outcome, not a failure -
+  // if the vendor has their own postback link configured for it, go there
+  // directly; otherwise show a dedicated card and bounce back to this
+  // vendor's own project list, since there's nowhere better to send them.
+  const handleBlocked = (data: { redirectUrl?: string; message?: string }) => {
+    if (data.redirectUrl) {
+      goTo(data.redirectUrl);
+      return;
+    }
+    setErrorMessage(data.message || "You're not eligible to take this survey.");
+    setBlockedSecondsLeft(BLOCKED_REDIRECT_SECONDS);
+    setStatus("blocked");
   };
 
   // Used both when the questions endpoint reports this attempt already has
@@ -69,11 +90,13 @@ export function SurveyStartForm() {
       const res = await apiFetch(`${API_BASE_URL}/api/public/survey/continue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid, vendorId, uid }),
+        body: JSON.stringify({ pid: pid ?? "", vendorId: vendorId ?? "", uid: uid ?? "" }),
         trackActivity: false,
       });
       const data = await res.json();
-      if (data.success && data.redirectUrl) {
+      if (data.blocked) {
+        handleBlocked(data);
+      } else if (data.success && data.redirectUrl) {
         goTo(data.redirectUrl);
       } else {
         setErrorMessage(data.message || "Unable to continue to the survey.");
@@ -84,15 +107,14 @@ export function SurveyStartForm() {
       setErrorMessage("Error connecting to the server.");
       setStatus("error");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid, vendorId, uid]);
 
   useEffect(() => {
-    if (missingParams) return;
-
     let cancelled = false;
     (async () => {
       try {
-        const params = new URLSearchParams({ pid, vendorId, uid });
+        const params = new URLSearchParams({ pid: pid ?? "", vendorId: vendorId ?? "", uid: uid ?? "" });
         const res = await apiFetch(`${API_BASE_URL}/api/public/survey/questions?${params.toString()}`, {
           trackActivity: false,
         });
@@ -102,6 +124,11 @@ export function SurveyStartForm() {
         if (!data.success) {
           setErrorMessage(data.message || "Unable to load this survey.");
           setStatus("error");
+          return;
+        }
+
+        if (data.blocked) {
+          handleBlocked(data);
           return;
         }
 
@@ -126,6 +153,19 @@ export function SurveyStartForm() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid, vendorId, uid]);
+
+  // Ticks the blocked-state countdown down to 0, then leaves for this
+  // vendor's own project list - a plain relative navigation, so it resolves
+  // against whatever origin this page is actually running on.
+  useEffect(() => {
+    if (status !== "blocked") return;
+    if (blockedSecondsLeft <= 0) {
+      window.location.href = BLOCKED_REDIRECT_PATH;
+      return;
+    }
+    const timer = setTimeout(() => setBlockedSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [status, blockedSecondsLeft]);
 
   const setTextAnswer = (questionId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -158,11 +198,13 @@ export function SurveyStartForm() {
       const res = await apiFetch(`${API_BASE_URL}/api/public/survey/answers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid, vendorId, uid, answers }),
+        body: JSON.stringify({ pid: pid ?? "", vendorId: vendorId ?? "", uid: uid ?? "", answers }),
         trackActivity: false,
       });
       const data = await res.json();
-      if (data.success && data.redirectUrl) {
+      if (data.blocked) {
+        handleBlocked(data);
+      } else if (data.success && data.redirectUrl) {
         goTo(data.redirectUrl);
       } else {
         toast.error(data.message || "Failed to submit your answers.");
@@ -183,6 +225,28 @@ export function SurveyStartForm() {
           {status === "redirecting" ? "Redirecting you to the survey..." : "Loading..."}
         </span>
       </div>
+    );
+  }
+
+  if (status === "blocked") {
+    return (
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <span className="mx-auto text-xl font-bold bg-gradient-to-r from-zinc-700 to-zinc-900 bg-clip-text text-transparent dark:from-zinc-200 dark:to-zinc-50">
+            A2B SURVEY
+          </span>
+          <CardTitle className="mt-2">Not eligible to continue</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <Ban />
+            <AlertTitle>{errorMessage}</AlertTitle>
+            <AlertDescription>
+              Redirecting to your projects in {blockedSecondsLeft}s...
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
     );
   }
 

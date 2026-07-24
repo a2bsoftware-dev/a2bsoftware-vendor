@@ -8,7 +8,17 @@ import ProjectStatusCards from "@/components/project-status-cards";
 import MonthlyStatsSection from "@/components/monthly-stats-section";
 import SurveyDetailsModal from "@/components/survey-details-modal";
 import ProjectDetailsModal from "@/components/project-details-modal";
+import StatusBreakdownChart from "@/components/status-breakdown-chart";
+import SurveyTrendChart from "@/components/survey-trend-chart";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
+
+// Raw {day, status, cnt} triple from /api/vendor/dashboard/monthly-statistics -
+// see SurveyTrendChart for how these get grouped into one bar per day.
+interface DailyStatusCount {
+  day: string;
+  status: number | null;
+  cnt: number | string;
+}
 
 // Shape of a single row in `surveyInformations` (and the grouped arrays derived
 // from it). Mirrors the `SurveyTransaction` shape expected by
@@ -63,6 +73,11 @@ export default function DashboardPage() {
   const [surveyInformations, setSurveyInformations] = useState<SurveyInformationItem[]>([]);
   const [, setProjectStatus] = useState<ProjectStatusItem[]>([]);
   const [monthlyStastics, setMonthlyStastics] = useState<MonthlyStatisticItem[]>([]);
+
+  // This vendor's own scoped analytics (/api/vendor/dashboard/*, unlike the
+  // admin-wide /api/dashboard/* above) - feeds the two charts below.
+  const [vendorTodayRows, setVendorTodayRows] = useState<{ status: number | null }[]>([]);
+  const [vendorDailyStatusCounts, setVendorDailyStatusCounts] = useState<DailyStatusCount[]>([]);
 
   // Modal states
   const [surveyModalOpen, setSurveyModalOpen] = useState(false);
@@ -189,9 +204,9 @@ export default function DashboardPage() {
     }
   }, [calculateDailyStastics]);
 
-  const fetchProjectStatusInit = useCallback(async () => {
+  const fetchProjectStatusInit = useCallback(async (trackActivity = true) => {
     try {
-      const res = await apiFetch(`${API_BASE_URL}/api/dashboard/project-status`);
+      const res = await apiFetch(`${API_BASE_URL}/api/dashboard/project-status`, { trackActivity });
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.projectStatus) {
@@ -204,9 +219,9 @@ export default function DashboardPage() {
     }
   }, [calculateProjectStatus]);
 
-  const fetchMonthlyStastics = useCallback(async () => {
+  const fetchMonthlyStastics = useCallback(async (trackActivity = true) => {
     try {
-      const res = await apiFetch(`${API_BASE_URL}/api/dashboard/monthly-statistics`);
+      const res = await apiFetch(`${API_BASE_URL}/api/dashboard/monthly-statistics`, { trackActivity });
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.monthlyStastics) {
@@ -218,6 +233,50 @@ export default function DashboardPage() {
       console.error("Error fetching monthly statistics", err);
     }
   }, [calculateMonthlyStatistics]);
+
+  const fetchVendorToday = useCallback(async (trackActivity = true) => {
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/vendor/dashboard/today`, { trackActivity });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.surveyInformations) {
+          setVendorTodayRows(data.surveyInformations);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching vendor today's breakdown", err);
+    }
+  }, []);
+
+  const fetchVendorMonthlyStats = useCallback(async (trackActivity = true) => {
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/vendor/dashboard/monthly-statistics`, { trackActivity });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.dailyStatusCounts) {
+          setVendorDailyStatusCounts(data.dailyStatusCounts);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching vendor monthly trend", err);
+    }
+  }, []);
+
+  // Today's raw rows (0=Drop,1=Complete,2=Disqualify,3=QuotaFull,4=SecurityTerm)
+  // aggregated into the counts StatusBreakdownChart expects.
+  const vendorTodayBreakdown = vendorTodayRows.reduce(
+    (acc, row) => {
+      switch (row.status) {
+        case 1: acc.completed++; break;
+        case 2: acc.disqualify++; break;
+        case 3: acc.quotaFull++; break;
+        case 4: acc.securityTerm++; break;
+        default: acc.drop++; break;
+      }
+      return acc;
+    },
+    { completed: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0 }
+  );
 
   // Trigger loading details in modals
   const handleShowDailyFullDetails = (type: number) => {
@@ -300,29 +359,40 @@ export default function DashboardPage() {
       await Promise.all([
         fetchDashboardInit(),
         fetchProjectStatusInit(),
-        fetchMonthlyStastics()
+        fetchMonthlyStastics(),
+        fetchVendorToday(),
+        fetchVendorMonthlyStats()
       ]);
       setLoading(false);
     };
 
     loadAllData();
 
-    // 60 second interval auto-refresh (matches original AngularJS controller interval).
-    // trackActivity=false: this is a background poll, not something the user did -
-    // it must not keep the idle-logout timer alive on its own.
+    // Live dashboard: silently re-fetch everything (today's survey info,
+    // project status board, monthly statistics, and this vendor's own
+    // breakdown/trend charts) every few seconds so all of it reflects new
+    // activity without a manual refresh. trackActivity=false on every call:
+    // this is a background poll, not something the user did - it must not
+    // keep the idle-logout timer alive on its own.
     const interval = setInterval(() => {
       fetchDashboardInit(false, false);
-    }, 60000);
+      fetchProjectStatusInit(false);
+      fetchMonthlyStastics(false);
+      fetchVendorToday(false);
+      fetchVendorMonthlyStats(false);
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchDashboardInit, fetchProjectStatusInit, fetchMonthlyStastics]);
+  }, [fetchDashboardInit, fetchProjectStatusInit, fetchMonthlyStastics, fetchVendorToday, fetchVendorMonthlyStats]);
 
   const triggerManualRefresh = async () => {
     setLoading(true);
     await Promise.all([
       fetchDashboardInit(),
       fetchProjectStatusInit(),
-      fetchMonthlyStastics()
+      fetchMonthlyStastics(),
+      fetchVendorToday(),
+      fetchVendorMonthlyStats()
     ]);
     setLoading(false);
   };
@@ -411,6 +481,24 @@ export default function DashboardPage() {
           securityTermMonthlyCount={securityTermsMonthlyCount}
           totalMonthlyCount={monthlyStastics.length}
         />
+      </section>
+
+      {/* 4. Your Own Analytics - scoped to just this vendor's own hits
+          (/api/vendor/dashboard/*), never other vendors' traffic */}
+      <section className="space-y-3 pt-2">
+        <h2 className="text-base font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+          Your Analytics
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <StatusBreakdownChart
+            completed={vendorTodayBreakdown.completed}
+            disqualify={vendorTodayBreakdown.disqualify}
+            quotaFull={vendorTodayBreakdown.quotaFull}
+            securityTerm={vendorTodayBreakdown.securityTerm}
+            drop={vendorTodayBreakdown.drop}
+          />
+          <SurveyTrendChart data={vendorDailyStatusCounts} />
+        </div>
       </section>
 
       {/* Details Modals */}

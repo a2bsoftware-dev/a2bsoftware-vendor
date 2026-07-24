@@ -186,8 +186,15 @@ export default function ProjectViewModal({ isOpen, onClose, projectId }: Project
   // /start-project/{pid}/{vendorId}) - the ONLY survey link this app ever
   // shows (the client's own surveyLink is never sent to a vendor account at
   // all - see ProjectService.redactSurveyLink).
+  //
+  // origin is THIS deployment's own address (e.g. https://vendor-abc.a2bsoftware.com)
+  // captured at copy-time, not a fixed/hardcoded vendor-portal domain - the
+  // backend redirects the respondent back to whichever origin actually
+  // issued the link (validated against CORS_ALLOWED_ORIGINS server-side), so
+  // this works unmodified across any number of vendor-portal deployments.
   const portalLink = p && myVendorId
-    ? `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(p.id)}/${encodeURIComponent(myVendorId)}?uid=`
+    ? `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(p.id)}/${encodeURIComponent(myVendorId)}` +
+      `?origin=${encodeURIComponent(window.location.origin)}&uid=`
     : "";
 
   const copyPortalLink = () => {

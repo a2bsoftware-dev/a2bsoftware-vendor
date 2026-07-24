@@ -133,6 +133,19 @@ export default function ProjectViewModal({ isOpen, onClose, projectId }: Project
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ProjectFormData | null>(null);
   const [copiedPortalLink, setCopiedPortalLink] = useState(false);
+  const [myVendorId, setMyVendorId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Personalizes the portal link below to this vendor's own id instead of
+    // pooling under the shared Internal Team vendor - see SurveyRouterController's
+    // /start-project/{pid}/{vendorId}.
+    apiFetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => {
+        if (me?.vendor_id) setMyVendorId(me.vendor_id);
+      })
+      .catch((err) => console.error("Error loading current vendor id", err));
+  }, []);
 
   useEffect(() => {
     if (!isOpen || !projectId) return;
@@ -169,10 +182,13 @@ export default function ProjectViewModal({ isOpen, onClose, projectId }: Project
   const p = data?.projectData;
   const stats = data?.statistics;
 
-  // Vendor-agnostic per-project link (SurveyRouterController's /start-project) -
-  // the ONLY survey link this app ever shows (the client's own surveyLink is
-  // never sent to a vendor account at all - see ProjectService.redactSurveyLink).
-  const portalLink = p ? `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(p.id)}?user_id=` : "";
+  // Per-project link personalized to this vendor's own id (SurveyRouterController's
+  // /start-project/{pid}/{vendorId}) - the ONLY survey link this app ever
+  // shows (the client's own surveyLink is never sent to a vendor account at
+  // all - see ProjectService.redactSurveyLink).
+  const portalLink = p && myVendorId
+    ? `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(p.id)}/${encodeURIComponent(myVendorId)}?uid=`
+    : "";
 
   const copyPortalLink = () => {
     if (!portalLink) return;

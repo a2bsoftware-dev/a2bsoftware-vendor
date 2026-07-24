@@ -152,6 +152,19 @@ export default function ProjectsPage() {
 
   // Survey link copy state
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [myVendorId, setMyVendorId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Personalizes each row's portal link to this vendor's own id instead of
+    // pooling under the shared Internal Team vendor - see SurveyRouterController's
+    // /start-project/{pid}/{vendorId}.
+    apiFetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => {
+        if (me?.vendor_id) setMyVendorId(me.vendor_id);
+      })
+      .catch((err) => console.error("Error loading current vendor id", err));
+  }, []);
 
   // Fetch filters options
   const loadFilterOptions = async () => {
@@ -571,7 +584,9 @@ export default function ProjectsPage() {
                     // The client's raw surveyLink is never sent to a vendor
                     // account (see ProjectService.redactSurveyLink) - this
                     // vendor-agnostic portal link is shown in its place.
-                    const surveyLink = `${API_BASE_URL}/api/public/survey/start-project/${project.id}?user_id=`;
+                    const surveyLink = myVendorId
+                      ? `${API_BASE_URL}/api/public/survey/start-project/${project.id}/${myVendorId}?uid=`
+                      : "";
 
                     return (
                       <TableRow 

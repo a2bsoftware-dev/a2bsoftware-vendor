@@ -137,6 +137,7 @@ export default function AddEditProjectPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [copiedPortalLink, setCopiedPortalLink] = useState(false);
+  const [myVendorId, setMyVendorId] = useState<string | null>(null);
 
   // Form dropdown options
   const [options, setOptions] = useState<FormOptions>({
@@ -275,6 +276,18 @@ export default function AddEditProjectPage() {
     loadProjectInitData();
   }, [project_id, loadProjectInitData]);
 
+  useEffect(() => {
+    // Personalizes the portal link below to this vendor's own id instead of
+    // pooling under the shared Internal Team vendor - see SurveyRouterController's
+    // /start-project/{pid}/{vendorId}.
+    apiFetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => {
+        if (me?.vendor_id) setMyVendorId(me.vendor_id);
+      })
+      .catch((err) => console.error("Error loading current vendor id", err));
+  }, []);
+
   // Live hit counts: while editing an existing project, silently refresh just
   // the statistics strip every few seconds. Deliberately NOT reusing
   // loadProjectInitData here - that would also overwrite formData and stomp
@@ -317,7 +330,9 @@ export default function AddEditProjectPage() {
   // real id (i.e. after at least one save), unlike survey_link which the
   // client fills in on the same form before that first save.
   const portalLink = () =>
-    `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(project_id || "")}?user_id=`;
+    myVendorId
+      ? `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(project_id || "")}/${encodeURIComponent(myVendorId)}?uid=`
+      : "";
 
   const copyPortalLink = () => {
     navigator.clipboard.writeText(portalLink());

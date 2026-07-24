@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Copy, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -131,37 +132,55 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export default function ProjectViewModal({ isOpen, onClose, projectId }: ProjectViewModalProps) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ProjectFormData | null>(null);
+  const [copiedPortalLink, setCopiedPortalLink] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !projectId) return;
 
-    const load = async () => {
-      setLoading(true);
+    const load = async (silent = false) => {
+      if (!silent) setLoading(true);
       try {
         const res = await apiFetch(`${API_BASE_URL}/api/projects/form-data?id=${projectId}`);
         if (res.ok) {
           const json = await res.json();
           if (json.success) {
             setData(json);
-          } else {
+          } else if (!silent) {
             toast.error("Failed to load project details");
           }
-        } else {
+        } else if (!silent) {
           toast.error("Failed to load project details");
         }
       } catch (err) {
         console.error("Error loading project details", err);
-        toast.error("Error connecting to server");
+        if (!silent) toast.error("Error connecting to server");
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
     };
 
     load();
+    // Live hit counts: silently refresh while the modal stays open so the
+    // stats strip reflects new survey activity without closing/reopening it.
+    const interval = setInterval(() => load(true), 5000);
+    return () => clearInterval(interval);
   }, [isOpen, projectId]);
 
   const p = data?.projectData;
   const stats = data?.statistics;
+
+  // Vendor-agnostic per-project link (SurveyRouterController's /start-project) -
+  // the ONLY survey link this app ever shows (the client's own surveyLink is
+  // never sent to a vendor account at all - see ProjectService.redactSurveyLink).
+  const portalLink = p ? `${API_BASE_URL}/api/public/survey/start-project/${encodeURIComponent(p.id)}?user_id=` : "";
+
+  const copyPortalLink = () => {
+    if (!portalLink) return;
+    navigator.clipboard.writeText(portalLink);
+    setCopiedPortalLink(true);
+    toast.success("Portal link copied to clipboard");
+    setTimeout(() => setCopiedPortalLink(false), 2000);
+  };
 
   const lookup = <T extends object>(
     list: T[] | undefined,
@@ -233,9 +252,25 @@ export default function ProjectViewModal({ isOpen, onClose, projectId }: Project
                   <Field label="Vendor's Budget (CPI)" value={p.vendorCpi} />
                   <Field label="Start Date" value={p.startDateFormatted} />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Field label="Survey Link" value={p.surveyLink} />
-                  <Field label="Survey Test Link" value={p.surveyTestLink} />
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide block">Main Portal Link</span>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      readOnly
+                      value={portalLink}
+                      className="font-mono text-xs bg-zinc-50 select-all cursor-pointer h-9"
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={copyPortalLink}
+                      className="h-9 w-9 flex items-center justify-center shrink-0 border-zinc-200"
+                    >
+                      {copiedPortalLink ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                    </Button>
+                  </div>
                 </div>
               </div>
 

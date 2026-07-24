@@ -169,8 +169,8 @@ export default function ProjectsPage() {
   };
 
   // Fetch projects list
-  const loadProjects = useCallback(async (targetPage = page, targetLimit = limit) => {
-    setLoading(true);
+  const loadProjects = useCallback(async (targetPage = page, targetLimit = limit, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({
         pageNo: String(targetPage),
@@ -202,9 +202,9 @@ export default function ProjectsPage() {
       }
     } catch (err) {
       console.error("Error loading projects list", err);
-      toast.error("Failed to load projects list");
+      if (!silent) toast.error("Failed to load projects list");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, limit, filters]);
 
@@ -226,6 +226,17 @@ export default function ProjectsPage() {
     // render-derived-value anti-pattern this rule targets.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProjects(page, limit);
+  }, [page, limit, loadProjects]);
+
+  // Live hit counts: silently re-fetch the current page every few seconds so
+  // Hits/Complete/Disqualify/etc. reflect new survey activity without the
+  // user needing to manually refresh. "silent" skips the loading spinner and
+  // error toast so this stays invisible unless something actually changes.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadProjects(page, limit, true);
+    }, 5000);
+    return () => clearInterval(interval);
   }, [page, limit, loadProjects]);
 
   const handleSearch = () => {
@@ -535,7 +546,6 @@ export default function ProjectsPage() {
                 <TableHeader className="bg-zinc-50/70 dark:bg-zinc-900">
                   <TableRow className="border-b border-zinc-200">
                     <TableHead className="font-semibold text-zinc-600 h-10 w-12 text-center">SN</TableHead>
-                    <TableHead className="font-semibold text-zinc-600 h-10 w-14 text-center">ID</TableHead>
                     <TableHead className="font-semibold text-zinc-600 h-10 w-16 text-center">Parent</TableHead>
                     <TableHead className="font-semibold text-zinc-600 h-10">Name</TableHead>
                     <TableHead className="font-semibold text-zinc-600 h-10">Survey Link</TableHead>
@@ -558,10 +568,10 @@ export default function ProjectsPage() {
                   {projects.map((project, idx) => {
                     const rowNum = (page - 1) * limit + idx + 1;
                     const isClientCopy = project.copyForClient === 1;
-                    // Narrowed local so TS knows it's a string inside the
-                    // onClick closure below (property narrowing doesn't
-                    // persist into nested closures).
-                    const surveyLink = project.surveyLink;
+                    // The client's raw surveyLink is never sent to a vendor
+                    // account (see ProjectService.redactSurveyLink) - this
+                    // vendor-agnostic portal link is shown in its place.
+                    const surveyLink = `${API_BASE_URL}/api/public/survey/start-project/${project.id}?user_id=`;
 
                     return (
                       <TableRow 
@@ -573,7 +583,6 @@ export default function ProjectsPage() {
                         }`}
                       >
                         <TableCell className="text-center font-medium text-zinc-500 py-3">{rowNum}</TableCell>
-                        <TableCell className="text-center font-bold text-zinc-800 dark:text-zinc-200">{project.id}</TableCell>
                         <TableCell className="text-center text-zinc-500 font-mono text-[10px]" title={project.parentProjectId || undefined}>
                           {project.parentProjectId ? `${project.parentProjectId.slice(0, 8)}…` : "-"}
                         </TableCell>
@@ -584,34 +593,27 @@ export default function ProjectsPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {surveyLink ? (
-                            <div className="flex items-center gap-1">
-                              <a
-                                href={surveyLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={surveyLink}
-                                className="block max-w-[160px] truncate text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-                              >
-                                {surveyLink}
-                              </a>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleCopySurveyLink(surveyLink, project.id)}
-                                className="h-6 w-6 shrink-0 text-zinc-500 hover:text-zinc-950"
-                                title="Copy survey link"
-                              >
-                                {copiedLinkId === project.id ? (
-                                  <Check size={13} className="text-emerald-600" />
-                                ) : (
-                                  <Copy size={13} />
-                                )}
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-zinc-400">-</span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            <span
+                              title={surveyLink}
+                              className="block max-w-[160px] truncate text-xs text-indigo-600 dark:text-indigo-400"
+                            >
+                              {surveyLink}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleCopySurveyLink(surveyLink, project.id)}
+                              className="h-6 w-6 shrink-0 text-zinc-500 hover:text-zinc-950"
+                              title="Copy survey link"
+                            >
+                              {copiedLinkId === project.id ? (
+                                <Check size={13} className="text-emerald-600" />
+                              ) : (
+                                <Copy size={13} />
+                              )}
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell className="text-zinc-600 dark:text-zinc-300 font-medium">{project.clientName || "NA"}</TableCell>
                         <TableCell className="text-zinc-500 text-xs">

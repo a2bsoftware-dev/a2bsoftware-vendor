@@ -1,16 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileBarChart2, Search, Loader2, Download, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  FileBarChart2,
+  Search,
+  Loader2,
+  Download,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Eye,
+} from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -76,9 +94,31 @@ function statusBadgeClass(status: string) {
       return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400";
     case "securityTerm":
       return "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400";
+    case "Reconcile":
+      return "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/20 dark:text-violet-400";
     default:
       return "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/20 dark:text-slate-400";
   }
+}
+
+// An approved reconcile upload that touched at least one of this vendor's
+// own hits - see ReconcileService.listApprovedForVendor. Pending/rejected
+// uploads never reach this app at all; there's nothing to review here, only
+// to see after the fact.
+interface ReconcileUploadRow {
+  id: string;
+  projectId: string;
+  projectName: string;
+  clientName: string | null;
+  fileName: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  uploadedAt: string;
+  uploadedByName: string | null;
+  reviewedAt: string | null;
+  reviewedByName: string | null;
+  totalRows: number | null;
+  matchedRows: number | null;
+  rejectionReason: string | null;
 }
 
 export default function ReportsPage() {
@@ -96,6 +136,71 @@ export default function ReportsPage() {
   const [page, setPage] = useState(1);
   const [loadingRows, setLoadingRows] = useState(false);
   const [downloading, setDownloading] = useState<"csv" | "xlsx" | null>(null);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyUploads, setHistoryUploads] = useState<ReconcileUploadRow[]>([]);
+  const [historyCount, setHistoryCount] = useState(0);
+
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewRows, setPreviewRows] = useState<SurveyDetailRow[]>([]);
+  const [previewTitle, setPreviewTitle] = useState("");
+
+  useEffect(() => {
+    apiFetch(`${API_BASE_URL}/api/vendor/reconcile/uploads`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.success) setHistoryCount((data.uploads || []).length);
+      })
+      .catch((err) => console.error("Error loading reconcile history count", err));
+  }, []);
+
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/vendor/reconcile/uploads`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) setHistoryUploads(data.uploads || []);
+      } else {
+        toast.error("Failed to load reconcile history");
+      }
+    } catch (err) {
+      console.error("Error loading reconcile history", err);
+      toast.error("Error connecting to server");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Reads the file server-side (via the backend, scoped to just this
+  // vendor's own rows) and shows it in-app - no browser download, and no
+  // hashed uid column at all (see ReconcileService.previewForVendor).
+  const handleViewUpload = async (upload: ReconcileUploadRow) => {
+    setPreviewTitle(`${upload.projectName} — ${upload.fileName}`);
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE_URL}/api/vendor/reconcile/uploads/${upload.id}/preview`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setPreviewRows(data.rows || []);
+        } else {
+          toast.error("Failed to read the uploaded file");
+        }
+      } else {
+        toast.error("Failed to read the uploaded file");
+      }
+    } catch (err) {
+      console.error("Error previewing reconcile upload", err);
+      toast.error("Error connecting to server");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   useEffect(() => {
     apiFetch(`${API_BASE_URL}/api/vendor/projects`)
@@ -197,14 +302,23 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="pb-2 border-b border-zinc-200">
-        <h1 className="text-2xl font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight flex items-center gap-2">
-          <FileBarChart2 className="h-6 w-6 text-zinc-500" />
-          Reports
-        </h1>
-        <p className="text-xs text-zinc-500 mt-0.5">
-          Select a project to view its survey activity and download a CSV or Excel report.
-        </p>
+      <div className="pb-2 border-b border-zinc-200 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight flex items-center gap-2">
+            <FileBarChart2 className="h-6 w-6 text-zinc-500" />
+            Reports
+          </h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Select a project to view its survey activity and download a CSV or Excel report.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={openHistory} className="h-8 flex items-center gap-1.5">
+          <ClipboardList size={13} />
+          <span>Reconcile History</span>
+          {historyCount > 0 && (
+            <Badge variant="secondary" className="ml-1">{historyCount}</Badge>
+          )}
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 items-start">
@@ -361,6 +475,112 @@ export default function ReportsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Reconcile History</DialogTitle>
+            <DialogDescription>
+              Files a client uploaded and an admin approved, that affected at least one of your own hits.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[55vh] overflow-y-auto">
+            {historyLoading ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+              </div>
+            ) : historyUploads.length === 0 ? (
+              <div className="py-10 text-center text-xs text-zinc-400">No reconcile history yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {historyUploads.map((u) => (
+                  <div key={u.id} className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">{u.projectName}</div>
+                      <div className="text-xs text-zinc-500 truncate" title={u.fileName}>{u.fileName}</div>
+                      <div className="text-[11px] text-zinc-400 mt-1">
+                        Uploaded {new Date(u.uploadedAt).toLocaleString()}
+                      </div>
+                      <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+                        {u.matchedRows} of {u.totalRows} UIDs reconciled
+                        {u.reviewedByName ? ` · approved by ${u.reviewedByName}` : ""}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs shrink-0"
+                      onClick={() => handleViewUpload(u)}
+                    >
+                      <Eye size={12} />
+                      <span className="ml-1">View</span>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{previewTitle}</DialogTitle>
+            <DialogDescription>
+              Read directly from the reconciled data - no download involved. Only your own hits are shown.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] overflow-auto">
+            {previewLoading ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+              </div>
+            ) : previewRows.length === 0 ? (
+              <div className="py-10 text-center text-xs text-zinc-400">No matching rows found.</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">#</TableHead>
+                    <TableHead className="text-xs">Start IP</TableHead>
+                    <TableHead className="text-xs">End IP</TableHead>
+                    <TableHead className="text-xs">Start Time</TableHead>
+                    <TableHead className="text-xs">End Time</TableHead>
+                    <TableHead className="text-xs">Ref ID</TableHead>
+                    <TableHead className="text-xs">UID</TableHead>
+                    <TableHead className="text-xs text-center">LOI</TableHead>
+                    <TableHead className="text-xs text-center">Status</TableHead>
+                    <TableHead className="text-xs">Country</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {previewRows.map((row, idx) => (
+                    <TableRow key={row.id || idx}>
+                      <TableCell className="text-zinc-500 text-xs">{idx + 1}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-500">{row.startIpAddress || "-"}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-500">{row.endIpAddress || "-"}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-600">{row.startDate} {row.startTime}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-600">{row.endDate} {row.endTime}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-500 max-w-[120px] truncate" title={row.refId}>{row.refId || "-"}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-500 max-w-[160px] truncate" title={row.uid || ""}>{row.uid || "-"}</TableCell>
+                      <TableCell className="text-center font-mono font-bold text-xs text-zinc-700 dark:text-zinc-300">{row.loi || "-"}</TableCell>
+                      <TableCell className="text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadgeClass(row.status)}`}>
+                          {row.status}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-zinc-600">{row.countryName || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

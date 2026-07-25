@@ -27,7 +27,7 @@ function buildVendorDailyTrend(rows: DailyStatusCount[]): DailyTrendRow[] {
   for (const row of rows) {
     let entry = byDay.get(row.day);
     if (!entry) {
-      entry = { day: row.day, complete: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0 };
+      entry = { day: row.day, complete: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0, reconcile: 0 };
       byDay.set(row.day, entry);
     }
     const cnt = typeof row.cnt === "number" ? row.cnt : parseInt(row.cnt, 10) || 0;
@@ -36,6 +36,7 @@ function buildVendorDailyTrend(rows: DailyStatusCount[]): DailyTrendRow[] {
       case 2: entry.disqualify += cnt; break;
       case 3: entry.quotaFull += cnt; break;
       case 4: entry.securityTerm += cnt; break;
+      case 5: entry.reconcile += cnt; break;
       default: entry.drop += cnt; break;
     }
   }
@@ -98,7 +99,7 @@ function buildDailyTrend(rows: MonthlyStatisticItem[]): DailyTrendRow[] {
     const day = row.start_time.slice(0, 10);
     let entry = byDay.get(day);
     if (!entry) {
-      entry = { day, complete: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0 };
+      entry = { day, complete: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0, reconcile: 0 };
       byDay.set(day, entry);
     }
     switch (row.status) {
@@ -106,6 +107,7 @@ function buildDailyTrend(rows: MonthlyStatisticItem[]): DailyTrendRow[] {
       case 2: entry.disqualify++; break;
       case 3: entry.quotaFull++; break;
       case 4: entry.securityTerm++; break;
+      case 5: entry.reconcile++; break;
       default: entry.drop++; break;
     }
   }
@@ -141,6 +143,7 @@ export default function DashboardPage() {
   const [quotaFulls, setQuotaFulls] = useState<SurveyInformationItem[]>([]);
   const [securityTerms, setSecurityTerms] = useState<SurveyInformationItem[]>([]);
   const [drops, setDrops] = useState<SurveyInformationItem[]>([]);
+  const [reconciles, setReconciles] = useState<SurveyInformationItem[]>([]);
 
   const [biddings, setBiddings] = useState<ProjectStatusItem[]>([]);
   const [testings, setTestings] = useState<ProjectStatusItem[]>([]);
@@ -159,6 +162,7 @@ export default function DashboardPage() {
     const qf: SurveyInformationItem[] = [];
     const st: SurveyInformationItem[] = [];
     const dr: SurveyInformationItem[] = [];
+    const rc: SurveyInformationItem[] = [];
 
     data.forEach((item) => {
       if (item.status === 0) dr.push(item);
@@ -166,6 +170,7 @@ export default function DashboardPage() {
       else if (item.status === 2) dq.push(item);
       else if (item.status === 3) qf.push(item);
       else if (item.status === 4) st.push(item);
+      else if (item.status === 5) rc.push(item);
     });
 
     setComplets(c);
@@ -173,6 +178,7 @@ export default function DashboardPage() {
     setQuotaFulls(qf);
     setSecurityTerms(st);
     setDrops(dr);
+    setReconciles(rc);
   }, []);
 
   // Grouping calculations (projects status)
@@ -283,7 +289,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Today's raw rows (0=Drop,1=Complete,2=Disqualify,3=QuotaFull,4=SecurityTerm)
+  // Today's raw rows (0=Drop,1=Complete,2=Disqualify,3=QuotaFull,4=SecurityTerm,5=Reconcile)
   // aggregated into the counts TodayStatusPieChart expects.
   const vendorTodayBreakdown = vendorTodayRows.reduce(
     (acc, row) => {
@@ -292,11 +298,12 @@ export default function DashboardPage() {
         case 2: acc.disqualify++; break;
         case 3: acc.quotaFull++; break;
         case 4: acc.securityTerm++; break;
+        case 5: acc.reconcile++; break;
         default: acc.drop++; break;
       }
       return acc;
     },
-    { completed: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0 }
+    { completed: 0, disqualify: 0, quotaFull: 0, securityTerm: 0, drop: 0, reconcile: 0 }
   );
 
   // Trigger loading details in modals
@@ -316,6 +323,9 @@ export default function DashboardPage() {
     } else if (type === 0) {
       setSurveyModalTitle("Drop");
       setSurveyModalData(drops);
+    } else if (type === 5) {
+      setSurveyModalTitle("Reconcile");
+      setSurveyModalData(reconciles);
     }
     setSurveyModalOpen(true);
   };
@@ -474,6 +484,7 @@ export default function DashboardPage() {
             quotaFull={vendorTodayBreakdown.quotaFull}
             securityTerm={vendorTodayBreakdown.securityTerm}
             drop={vendorTodayBreakdown.drop}
+            reconcile={vendorTodayBreakdown.reconcile}
           />
           <MonthlyTrendAreaChart data={buildVendorDailyTrend(vendorDailyStatusCounts)} />
         </div>
@@ -491,9 +502,10 @@ export default function DashboardPage() {
             quotaFull={quotaFulls.length}
             securityTerm={securityTerms.length}
             drop={drops.length}
+            reconcile={reconciles.length}
             onSliceClick={(key) =>
               handleShowDailyFullDetails(
-                key === "completed" ? 1 : key === "disqualify" ? 2 : key === "quotaFull" ? 3 : key === "securityTerm" ? 4 : 0
+                key === "completed" ? 1 : key === "disqualify" ? 2 : key === "quotaFull" ? 3 : key === "securityTerm" ? 4 : key === "reconcile" ? 5 : 0
               )
             }
           />
@@ -523,6 +535,7 @@ export default function DashboardPage() {
             quotaFull={quotaFulls.length}
             securityTerm={securityTerms.length}
             drop={drops.length}
+            reconcile={reconciles.length}
           />
         </div>
       </section>

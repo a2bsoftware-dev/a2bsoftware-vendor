@@ -67,6 +67,7 @@ interface ProjectStatistics {
   ir: number;
   loi: number;
   abendond: number;
+  reconcile: number;
 }
 
 interface ProjectDetail {
@@ -247,6 +248,7 @@ export default function ProjectViewModal({ isOpen, onClose, projectId }: Project
                     { label: "Quota Full", val: stats.quotaFull },
                     { label: "Security Term", val: stats.securityTerm },
                     { label: "Drop", val: stats.drop },
+                    { label: "Reconcile", val: stats.reconcile },
                     { label: "EPC", val: `$${Number(stats.epc || 0).toFixed(2)}` },
                     { label: "IR", val: `${stats.ir}%` },
                     { label: "Avg LOI", val: stats.loi },

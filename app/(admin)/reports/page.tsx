@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileBarChart2, Search, Loader2, Download, FileSpreadsheet, ChevronLeft, ChevronRight } from "lucide-react";
+import { FileBarChart2, Search, Loader2, Download, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -249,28 +255,26 @@ export default function ReportsPage() {
               {selectedProject ? selectedProject.projectName : "Select a project"}
             </CardTitle>
             {selectedProject && (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDownload("csv")}
-                  disabled={downloading !== null}
-                  className="h-8 flex items-center gap-1.5"
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={downloading !== null}
+                      className="h-8 flex items-center gap-1.5"
+                    />
+                  }
                 >
-                  {downloading === "csv" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-                  <span>CSV</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDownload("xlsx")}
-                  disabled={downloading !== null}
-                  className="h-8 flex items-center gap-1.5"
-                >
-                  {downloading === "xlsx" ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />}
-                  <span>Excel</span>
-                </Button>
-              </div>
+                  {downloading !== null ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  <span>Download</span>
+                  <ChevronDown size={13} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleDownload("csv")}>CSV</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleDownload("xlsx")}>Excel (.xlsx)</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </CardHeader>
           <CardContent className="pt-4">

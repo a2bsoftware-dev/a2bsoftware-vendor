@@ -657,6 +657,7 @@ export default function ReportsPage() {
                       <TableRow>
                         <TableHead className="text-xs">#</TableHead>
                         {!selectedProject && <TableHead className="text-xs">Project</TableHead>}
+                        <TableHead className="text-xs">Vendor</TableHead>
                         <TableHead className="text-xs">Start IP</TableHead>
                         <TableHead className="text-xs">End IP</TableHead>
                         <TableHead className="text-xs">Start Time</TableHead>
@@ -675,6 +676,7 @@ export default function ReportsPage() {
                           {!selectedProject && (
                             <TableCell className="text-xs max-w-[160px] truncate" title={row.projectName}>{row.projectName}</TableCell>
                           )}
+                          <TableCell className="text-xs">{row.vendorName}</TableCell>
                           <TableCell className="font-mono text-xs text-zinc-500">{row.startIpAddress}</TableCell>
                           <TableCell className="font-mono text-xs text-zinc-500">{row.endIpAddress}</TableCell>
                           <TableCell className="font-mono text-xs text-zinc-600">{row.startDate} {row.startTime}</TableCell>

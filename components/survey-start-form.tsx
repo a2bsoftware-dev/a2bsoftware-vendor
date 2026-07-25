@@ -16,8 +16,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 
@@ -26,10 +34,21 @@ interface SurveyQuestion {
   question: string;
   questionType: string;
   options: string[] | null;
+  required: boolean;
+  helpText: string | null;
+  allowOther: boolean;
+  minValue: number | null;
+  maxValue: number | null;
 }
 
 type AnswerValue = string | string[];
 type Status = "loading" | "form" | "redirecting" | "error" | "blocked";
+
+// Sentinel stored in `answers` while "Other" is selected for a choice-type
+// question - swapped out for the respondent's actual typed text (from
+// `otherText`) right before submitting, so the backend only ever sees real
+// answer text, never this internal marker.
+const OTHER_VALUE = "__other__";
 
 // Where a blocked respondent lands when there's no vendor-specific
 // complete/disqualify/quotaFull/securityTerm link configured to send them
@@ -59,6 +78,11 @@ export function SurveyStartForm() {
   const [errorMessage, setErrorMessage] = useState("");
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>({});
+  // Free text typed for an "Other" selection, keyed by question id - kept
+  // separate from `answers` (which holds the OTHER_VALUE sentinel while
+  // selected) so the input's own value survives toggling other options on a
+  // multi-select question.
+  const [otherText, setOtherText] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [blockedSecondsLeft, setBlockedSecondsLeft] = useState(BLOCKED_REDIRECT_SECONDS);
 
@@ -179,10 +203,39 @@ export function SurveyStartForm() {
     });
   };
 
+  // An optional question (required === false) never blocks submission,
+  // whether or not it's been touched. Otherwise, selecting "Other" also
+  // requires the free-text specification to be non-empty - the OTHER_VALUE
+  // sentinel alone isn't a real answer.
   const isAnswered = (q: SurveyQuestion) => {
+    if (q.required === false) return true;
     const value = answers[q.id];
+    const selectedOther = q.allowOther
+      && (value === OTHER_VALUE || (Array.isArray(value) && value.includes(OTHER_VALUE)));
+    if (selectedOther && !otherText[q.id]?.trim()) return false;
     if (Array.isArray(value)) return value.length > 0;
     return typeof value === "string" && value.trim().length > 0;
+  };
+
+  // Swaps the OTHER_VALUE sentinel for the respondent's actual typed text -
+  // the backend (and anyone reading the stored answers later) should only
+  // ever see real answer text, never this internal marker.
+  const buildSubmittableAnswers = (): Record<string, AnswerValue> => {
+    const result: Record<string, AnswerValue> = {};
+    for (const q of questions) {
+      const value = answers[q.id];
+      if (value === undefined) continue;
+      if (Array.isArray(value)) {
+        result[q.id] = value
+          .map((v) => (v === OTHER_VALUE ? (otherText[q.id] || "").trim() : v))
+          .filter((v) => v.length > 0);
+      } else if (value === OTHER_VALUE) {
+        result[q.id] = (otherText[q.id] || "").trim();
+      } else {
+        result[q.id] = value;
+      }
+    }
+    return result;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -198,7 +251,12 @@ export function SurveyStartForm() {
       const res = await apiFetch(`${API_BASE_URL}/api/public/survey/answers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid: pid ?? "", vendorId: vendorId ?? "", uid: uid ?? "", answers }),
+        body: JSON.stringify({
+          pid: pid ?? "",
+          vendorId: vendorId ?? "",
+          uid: uid ?? "",
+          answers: buildSubmittableAnswers(),
+        }),
         trackActivity: false,
       });
       const data = await res.json();
@@ -284,54 +342,155 @@ export function SurveyStartForm() {
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="flex flex-col gap-6">
-          {questions.map((q, index) => (
-            <div key={q.id} className="flex flex-col gap-2">
-              <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                {index + 1}. {q.question}
-              </Label>
+          {questions.map((q, index) => {
+            const otherChecked = q.allowOther
+              && (answers[q.id] === OTHER_VALUE
+                || (Array.isArray(answers[q.id]) && (answers[q.id] as string[]).includes(OTHER_VALUE)));
 
-              {q.questionType === "text" && (
-                <Textarea
-                  value={(answers[q.id] as string) || ""}
-                  onChange={(e) => setTextAnswer(q.id, e.target.value)}
-                  rows={3}
-                  placeholder="Type your answer"
-                />
-              )}
+            return (
+              <div key={q.id} className="flex flex-col gap-2">
+                <Label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                  {index + 1}. {q.question}
+                  {q.required === false && (
+                    <span className="ml-1.5 text-xs font-normal text-zinc-400">(optional)</span>
+                  )}
+                </Label>
+                {q.helpText && (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 -mt-1">{q.helpText}</p>
+                )}
 
-              {q.questionType === "single_choice" && (
-                <RadioGroup
-                  value={(answers[q.id] as string) || ""}
-                  onValueChange={(value) => setTextAnswer(q.id, String(value))}
-                >
-                  {(q.options || []).map((option) => (
-                    <label key={option} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                      <RadioGroupItem value={option} />
-                      {option}
-                    </label>
-                  ))}
-                </RadioGroup>
-              )}
+                {q.questionType === "text" && (
+                  <Textarea
+                    value={(answers[q.id] as string) || ""}
+                    onChange={(e) => setTextAnswer(q.id, e.target.value)}
+                    rows={3}
+                    placeholder="Type your answer"
+                  />
+                )}
 
-              {q.questionType === "multiple_choice" && (
-                <div className="flex flex-col gap-2">
-                  {(q.options || []).map((option) => {
-                    const selected =
-                      Array.isArray(answers[q.id]) && (answers[q.id] as string[]).includes(option);
-                    return (
+                {q.questionType === "number" && (
+                  <Input
+                    type="number"
+                    value={(answers[q.id] as string) || ""}
+                    onChange={(e) => setTextAnswer(q.id, e.target.value)}
+                    min={q.minValue ?? undefined}
+                    max={q.maxValue ?? undefined}
+                    placeholder="Enter a number"
+                  />
+                )}
+
+                {q.questionType === "date" && (
+                  <Input
+                    type="date"
+                    value={(answers[q.id] as string) || ""}
+                    onChange={(e) => setTextAnswer(q.id, e.target.value)}
+                    className="w-full sm:w-56"
+                  />
+                )}
+
+                {q.questionType === "rating" && (
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(
+                      { length: (q.maxValue ?? 5) - (q.minValue ?? 1) + 1 },
+                      (_, i) => (q.minValue ?? 1) + i
+                    ).map((n) => {
+                      const selected = answers[q.id] === String(n);
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setTextAnswer(q.id, String(n))}
+                          className={`h-9 w-9 rounded-full border text-sm font-semibold transition-colors ${
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-zinc-300 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {q.questionType === "dropdown" && (
+                  <Select
+                    items={[
+                      ...(q.options || []).map((option) => ({ value: option, label: option })),
+                      ...(q.allowOther ? [{ value: OTHER_VALUE, label: "Other" }] : []),
+                    ]}
+                    value={(answers[q.id] as string) || ""}
+                    onValueChange={(value) => setTextAnswer(q.id, value ?? "")}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select an option" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(q.options || []).map((option) => (
+                        <SelectItem key={option} value={option}>{option}</SelectItem>
+                      ))}
+                      {q.allowOther && <SelectItem value={OTHER_VALUE}>Other</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {q.questionType === "single_choice" && (
+                  <RadioGroup
+                    value={(answers[q.id] as string) || ""}
+                    onValueChange={(value) => setTextAnswer(q.id, String(value))}
+                  >
+                    {(q.options || []).map((option) => (
                       <label key={option} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                        <Checkbox
-                          checked={selected}
-                          onCheckedChange={(checked) => toggleMultipleChoice(q.id, option, checked === true)}
-                        />
+                        <RadioGroupItem value={option} />
                         {option}
                       </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
+                    ))}
+                    {q.allowOther && (
+                      <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                        <RadioGroupItem value={OTHER_VALUE} />
+                        Other
+                      </label>
+                    )}
+                  </RadioGroup>
+                )}
+
+                {q.questionType === "multiple_choice" && (
+                  <div className="flex flex-col gap-2">
+                    {(q.options || []).map((option) => {
+                      const selected =
+                        Array.isArray(answers[q.id]) && (answers[q.id] as string[]).includes(option);
+                      return (
+                        <label key={option} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={(checked) => toggleMultipleChoice(q.id, option, checked === true)}
+                          />
+                          {option}
+                        </label>
+                      );
+                    })}
+                    {q.allowOther && (
+                      <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                        <Checkbox
+                          checked={otherChecked}
+                          onCheckedChange={(checked) => toggleMultipleChoice(q.id, OTHER_VALUE, checked === true)}
+                        />
+                        Other
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {q.allowOther && otherChecked && (
+                  <Input
+                    value={otherText[q.id] || ""}
+                    onChange={(e) => setOtherText((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                    placeholder="Please specify"
+                  />
+                )}
+              </div>
+            );
+          })}
         </CardContent>
         <CardFooter>
           <Button type="submit" disabled={submitting} className="w-full flex items-center gap-1.5">

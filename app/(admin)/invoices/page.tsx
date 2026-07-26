@@ -149,6 +149,29 @@ function scopeLabel(projectName: string | null): string {
 export default function InvoicesPage() {
   const { permission } = useModulePermission(INVOICES_MODULE_ID);
 
+  // Invoices is a vendor's own self-service billing feature, not an
+  // admin-configurable module like the rest of the Access Rights list - a
+  // "Vendors"-role account always gets full access here regardless of what's
+  // (or isn't) set in client_user_priv, so misconfiguring/forgetting that
+  // panel entry can never hide a vendor's own invoices from them. Other roles
+  // allowed into this portal (Vendor Manager, Admin) still go through the
+  // normal permission check below.
+  const [isVendor, setIsVendor] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`${API_BASE_URL}/api/auth/me`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.role === "Vendors") setIsVendor(true);
+      })
+      .catch((err) => console.error("Error checking vendor role", err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const canRead = isVendor || permission.read;
+  const canCreate = isVendor || permission.create;
+
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const monthOptions = useMemo(() => buildMonthOptions(), []);
 
@@ -369,7 +392,7 @@ export default function InvoicesPage() {
     }
   };
 
-  if (!permission.read) {
+  if (!canRead) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center space-y-2">
         <span className="text-sm font-bold text-zinc-600">You don&apos;t have access to Invoices.</span>
@@ -465,7 +488,7 @@ export default function InvoicesPage() {
                 {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
                 <span className="ml-1.5">Preview</span>
               </Button>
-              {permission.create && (
+              {canCreate && (
                 <Button
                   size="sm"
                   className="h-8"

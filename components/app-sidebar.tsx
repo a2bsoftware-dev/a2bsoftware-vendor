@@ -91,7 +91,12 @@ export function AppSidebar({
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, visible: hasAccess(1) },
     { name: "Projects", href: "/projects", icon: FolderKanban, visible: hasAccess(6) },
     { name: "Reports", href: "/reports", icon: FileBarChart2, visible: hasAccess(6) },
-    { name: "Invoices", href: "/invoices", icon: Receipt, visible: hasAccess(23) },
+    // Always visible for actual vendor accounts regardless of what's
+    // configured in Access Rights for the "Vendors" role - this is a vendor's
+    // own self-service billing feature, not an admin-configurable module like
+    // the rest of this list, so it shouldn't be possible to lose it via a
+    // client_user_priv misconfiguration.
+    { name: "Invoices", href: "/invoices", icon: Receipt, visible: hasAccess(23) || user?.role === "Vendors" },
     { name: "Users", href: "/users", icon: Users, visible: hasAccess(10) },
     {
       name: "Clients",

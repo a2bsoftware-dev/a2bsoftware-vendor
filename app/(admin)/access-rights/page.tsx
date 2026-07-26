@@ -25,7 +25,8 @@ const ACCESS_RIGHTS_MODULES = [
   { id: 18, name: "Vendors", description: "Manage panel vendors list and security callback tokens." },
   { id: 19, name: "Client Links", description: "Manage global supplier routing link templates." },
   { id: 20, name: "Client Api Data", description: "Synchronize and approve external third-party API survey feeds." },
-  { id: 21, name: "Access Rights", description: "Configure system-wide module privileges for user roles." }
+  { id: 21, name: "Access Rights", description: "Configure system-wide module privileges for user roles." },
+  { id: 23, name: "Invoices", description: "Generate invoices for your own billable activity and download them." }
 ];
 
 // Read is the baseline: create/update/delete are meaningless without it, so a

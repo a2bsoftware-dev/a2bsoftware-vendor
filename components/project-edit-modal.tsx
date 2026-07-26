@@ -23,6 +23,10 @@ interface ProjectEditModalProps {
   onClose: () => void;
   projectId: string | null;
   onSaved: () => void;
+  // Current user's role (from the parent's own useModulePermission call) -
+  // Client CPI is the client's own budget rate and should stay hidden from
+  // Vendors, so it's only rendered when this is "Admin".
+  role?: string | null;
 }
 
 interface OptionItem {
@@ -103,7 +107,8 @@ const emptyFormData = {
   sales_manager_id: "",
 };
 
-export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved }: ProjectEditModalProps) {
+export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved, role }: ProjectEditModalProps) {
+  const canSeeClientCpi = role === "Admin";
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [options, setOptions] = useState<ProjectFormOptions>({
@@ -192,7 +197,7 @@ export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved }
 
     if (
       !formData.project_name || !formData.study_type || !formData.country_id ||
-      !formData.language_id || !formData.currency_id || !formData.cpc ||
+      !formData.language_id || !formData.currency_id || (canSeeClientCpi && !formData.cpc) ||
       !formData.survey_link || !formData.req_complete || !formData.ir || !formData.loi ||
       !formData.client_id || !formData.project_manager_id || !formData.sales_manager_id
     ) {
@@ -376,27 +381,29 @@ export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved }
                     </NativeSelect>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold text-zinc-500">
-                      Client&apos;s Budget (CPI) <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.cpc}
-                      onChange={(e) => {
-                        const cpc = e.target.value;
-                        const parsed = parseFloat(cpc);
-                        setFormData({
-                          ...formData,
-                          cpc,
-                          vendor_cpi: Number.isFinite(parsed) ? (parsed * 0.3).toFixed(2) : "",
-                        });
-                      }}
-                      className="h-9"
-                      required
-                    />
-                  </div>
+                  {canSeeClientCpi && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-zinc-500">
+                        Client&apos;s Budget (CPI) <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={formData.cpc}
+                        onChange={(e) => {
+                          const cpc = e.target.value;
+                          const parsed = parseFloat(cpc);
+                          setFormData({
+                            ...formData,
+                            cpc,
+                            vendor_cpi: Number.isFinite(parsed) ? (parsed * 0.7).toFixed(2) : "",
+                          });
+                        }}
+                        className="h-9"
+                        required
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-zinc-500">Vendor&apos;s Budget (CPI)</Label>
@@ -405,7 +412,7 @@ export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved }
                       step="0.01"
                       value={formData.vendor_cpi}
                       onChange={(e) => setFormData({ ...formData, vendor_cpi: e.target.value })}
-                      placeholder="Auto-calculated as 30% of Client CPI"
+                      placeholder="Auto-calculated as 70% of Client CPI"
                       className="h-9"
                     />
                   </div>

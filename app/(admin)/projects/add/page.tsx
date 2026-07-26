@@ -132,7 +132,10 @@ export default function AddEditProjectPage() {
   const idParam = params?.id;
   const project_id: string | null = Array.isArray(idParam) ? idParam[0] : (idParam || null);
   const requiredAction = project_id ? "update" : "create";
-  const { permission, loading: permissionLoading } = useModulePermission(PROJECTS_MODULE_ID);
+  const { permission, role, loading: permissionLoading } = useModulePermission(PROJECTS_MODULE_ID);
+  // Client CPI is the client's own budget rate - Vendors (this app's other
+  // allowed role, besides Admin) should never see what the client is paying.
+  const canSeeClientCpi = role === "Admin";
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -378,9 +381,11 @@ export default function AddEditProjectPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Basic validation
-    if (!formData.project_name || !formData.study_type || !formData.country_id || 
-        !formData.language_id || !formData.currency_id || !formData.cpc || 
+    // Basic validation - cpc is only required when it's actually visible/
+    // editable (canSeeClientCpi); a Vendor never sees this field, so its own
+    // submission can't be blocked on filling in something they can't reach.
+    if (!formData.project_name || !formData.study_type || !formData.country_id ||
+        !formData.language_id || !formData.currency_id || (canSeeClientCpi && !formData.cpc) ||
         !formData.survey_link || !formData.req_complete || !formData.ir || !formData.loi) {
       toast.error("Please fill in all required fields.");
       return;
@@ -691,28 +696,30 @@ export default function AddEditProjectPage() {
                 </NativeSelect>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-zinc-500">
-                  Client&apos;s Budget (CPI) <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.cpc}
-                  onChange={(e) => {
-                    const cpc = e.target.value;
-                    const parsed = parseFloat(cpc);
-                    setFormData({
-                      ...formData,
-                      cpc,
-                      vendor_cpi: Number.isFinite(parsed) ? (parsed * 0.3).toFixed(2) : "",
-                    });
-                  }}
-                  placeholder="CPI"
-                  className="h-10"
-                  required
-                />
-              </div>
+              {canSeeClientCpi && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-zinc-500">
+                    Client&apos;s Budget (CPI) <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.cpc}
+                    onChange={(e) => {
+                      const cpc = e.target.value;
+                      const parsed = parseFloat(cpc);
+                      setFormData({
+                        ...formData,
+                        cpc,
+                        vendor_cpi: Number.isFinite(parsed) ? (parsed * 0.7).toFixed(2) : "",
+                      });
+                    }}
+                    placeholder="CPI"
+                    className="h-10"
+                    required
+                  />
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-zinc-500">
@@ -723,7 +730,7 @@ export default function AddEditProjectPage() {
                   step="0.01"
                   value={formData.vendor_cpi}
                   onChange={(e) => setFormData({ ...formData, vendor_cpi: e.target.value })}
-                  placeholder="Auto-calculated as 30% of Client CPI"
+                  placeholder="Auto-calculated as 70% of Client CPI"
                   className="h-10"
                 />
               </div>

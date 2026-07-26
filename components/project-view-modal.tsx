@@ -19,6 +19,10 @@ interface ProjectViewModalProps {
   isOpen: boolean;
   onClose: () => void;
   projectId: string | null;
+  // Current user's role (from the parent's own useModulePermission call) -
+  // Client CPI is the client's own budget rate and should stay hidden from
+  // Vendors, so it's only rendered when this is "Admin".
+  role?: string | null;
 }
 
 interface OptionItem {
@@ -130,7 +134,8 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export default function ProjectViewModal({ isOpen, onClose, projectId }: ProjectViewModalProps) {
+export default function ProjectViewModal({ isOpen, onClose, projectId, role }: ProjectViewModalProps) {
+  const canSeeClientCpi = role === "Admin";
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ProjectFormData | null>(null);
   const [copiedPortalLink, setCopiedPortalLink] = useState(false);
@@ -273,7 +278,7 @@ export default function ProjectViewModal({ isOpen, onClose, projectId }: Project
                   <Field label="Country" value={p.countryName || lookup(data?.countries, p.countryId, "id", "name")} />
                   <Field label="Language" value={lookup(data?.languages, p.languageId, "id", "languageName")} />
                   <Field label="Currency" value={lookup(data?.currency, p.currencyId, "id", "currencyName")} />
-                  <Field label="Client's Budget (CPI)" value={p.cpc} />
+                  {canSeeClientCpi && <Field label="Client's Budget (CPI)" value={p.cpc} />}
                   <Field label="Vendor's Budget (CPI)" value={p.vendorCpi} />
                   <Field label="Start Date" value={p.startDateFormatted} />
                 </div>

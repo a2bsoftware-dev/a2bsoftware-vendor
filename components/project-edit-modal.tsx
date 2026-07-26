@@ -384,7 +384,15 @@ export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved }
                       type="number"
                       step="0.01"
                       value={formData.cpc}
-                      onChange={(e) => setFormData({ ...formData, cpc: e.target.value })}
+                      onChange={(e) => {
+                        const cpc = e.target.value;
+                        const parsed = parseFloat(cpc);
+                        setFormData({
+                          ...formData,
+                          cpc,
+                          vendor_cpi: Number.isFinite(parsed) ? (parsed * 0.3).toFixed(2) : "",
+                        });
+                      }}
                       className="h-9"
                       required
                     />
@@ -397,6 +405,7 @@ export default function ProjectEditModal({ isOpen, onClose, projectId, onSaved }
                       step="0.01"
                       value={formData.vendor_cpi}
                       onChange={(e) => setFormData({ ...formData, vendor_cpi: e.target.value })}
+                      placeholder="Auto-calculated as 30% of Client CPI"
                       className="h-9"
                     />
                   </div>

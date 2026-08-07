@@ -47,6 +47,8 @@ import {
 import { toast } from "sonner";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 import { useModulePermission } from "@/hooks/use-module-permission";
+import { TableSkeleton } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Matches the "Projects" entry in ACCESS_RIGHTS_MODULES - the report is a
 // project-scoped view of the same data the Projects screen manages, and
@@ -513,8 +515,10 @@ export default function ReportsPage() {
               All Projects
             </button>
             {loadingProjects ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+              <div className="space-y-1.5 p-3">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
+                ))}
               </div>
             ) : filteredProjects.length === 0 ? (
               <div className="py-10 text-center text-xs text-zinc-400">No projects found.</div>
@@ -640,9 +644,7 @@ export default function ReportsPage() {
           </div>
           <CardContent className="pt-4">
             {loadingRows ? (
-              <div className="flex justify-center py-20">
-                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-              </div>
+              <TableSkeleton rows={8} columns={9} />
             ) : rows.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <span className="text-sm text-zinc-400">
@@ -738,8 +740,14 @@ export default function ReportsPage() {
 
           <div className="max-h-[55vh] overflow-y-auto">
             {historyLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 space-y-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-56" />
+                    <Skeleton className="h-3 w-32" />
+                  </div>
+                ))}
               </div>
             ) : historyUploads.length === 0 ? (
               <div className="py-10 text-center text-xs text-zinc-400">No reconcile history yet.</div>
@@ -786,9 +794,7 @@ export default function ReportsPage() {
 
           <div className="max-h-[60vh] overflow-auto">
             {previewLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-              </div>
+              <TableSkeleton rows={6} columns={8} />
             ) : previewRows.length === 0 ? (
               <div className="py-10 text-center text-xs text-zinc-400">No matching rows found.</div>
             ) : (

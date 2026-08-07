@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 import { useModulePermission } from "@/hooks/use-module-permission";
@@ -247,9 +248,22 @@ export default function AccessRightsPage() {
       </div>
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-24 space-y-3">
-          <Loader2 className="h-9 w-9 animate-spin text-zinc-500" />
-          <span className="text-sm font-semibold text-zinc-500">Querying database access levels...</span>
+        <div className="grid grid-cols-1 gap-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="border-zinc-200 shadow-sm overflow-hidden bg-white dark:bg-zinc-900">
+              <CardHeader className="py-4 border-b border-zinc-150 bg-zinc-50/50 dark:bg-zinc-950/20">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-3 w-32 mt-2" />
+              </CardHeader>
+              <CardContent className="pt-4 pb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {Array.from({ length: 9 }).map((_, j) => (
+                    <Skeleton key={j} className="h-24 rounded-lg" />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : roles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center space-y-2 border border-dashed rounded-lg">

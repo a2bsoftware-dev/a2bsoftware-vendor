@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
 import { useModulePermission } from "@/hooks/use-module-permission";
+import { DetailSkeleton, TableSkeleton } from "@/components/skeletons";
 
 // Matches the "Invoices" entry in ACCESS_RIGHTS_MODULES and MODULE_ID 23 in
 // the backend's InvoiceController.
@@ -503,8 +504,8 @@ export default function InvoicesPage() {
           </div>
 
           {previewLoading && (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+            <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+              <TableSkeleton rows={4} columns={6} />
             </div>
           )}
 
@@ -560,9 +561,7 @@ export default function InvoicesPage() {
         </CardHeader>
         <CardContent className="pt-4">
           {loadingInvoices ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-            </div>
+            <TableSkeleton rows={6} columns={8} />
           ) : invoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <span className="text-sm text-zinc-400">No invoices generated yet.</span>
@@ -637,8 +636,9 @@ export default function InvoicesPage() {
           </DialogHeader>
 
           {detailLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+            <div className="space-y-4">
+              <DetailSkeleton rows={4} />
+              <TableSkeleton rows={3} columns={6} />
             </div>
           ) : detailInvoice ? (
             <div className="space-y-4">

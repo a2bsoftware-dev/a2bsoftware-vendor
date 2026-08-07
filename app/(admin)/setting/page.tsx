@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { API_BASE_URL, apiFetch } from "@/lib/api";
+import { FormSkeleton } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Shape of the settings form state, persisted via /api/settings.
 interface SettingsForm {
@@ -198,9 +200,22 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-32 space-y-3">
-        <Loader2 className="h-8 w-8 animate-spin text-zinc-500" />
-        <span className="text-sm font-medium text-zinc-500">Querying settings registry...</span>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center pb-2 border-b border-zinc-200">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-3 w-72" />
+          </div>
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <FormSkeleton fields={7} />
+          </div>
+          <div>
+            <FormSkeleton fields={4} />
+          </div>
+        </div>
       </div>
     );
   }
